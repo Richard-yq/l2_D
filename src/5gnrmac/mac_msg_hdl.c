@@ -37,11 +37,6 @@
 
 MacCb  macCb;
 
-uint16_t buildMacPdu(RlcData *dlData);
-#ifdef EGTP_TEST
-void macStubBuildUlData(Buffer *mBuf);
-#endif
-
 /* Function pointer for sending crc ind from MAC to SCH */
 MacSchCrcIndFunc macSchCrcIndOpts[]=
 {
@@ -74,6 +69,21 @@ MacSchSrUciIndFunc macSchSrUciIndOpts[]=
    packMacSchSrUciInd
 };
 
+/* Function pointer for sending Slice cfg  ind from MAC to SCH */
+MacSchSliceCfgReqFunc macSchSliceCfgReqOpts[]=
+{
+   packMacSchSliceCfgReq,
+   MacSchSliceCfgReq,
+   packMacSchSliceCfgReq
+};
+
+/* Function pointer for sending Slice cfg  ind from MAC to SCH */
+MacSchSliceReCfgReqFunc macSchSliceReCfgReqOpts[]=
+{
+   packMacSchSliceReCfgReq,
+   MacSchSliceReCfgReq,
+   packMacSchSliceReCfgReq
+};
 /*******************************************************************
  *
  * @brief Sends DL BO Info to SCH
@@ -124,6 +134,40 @@ uint8_t sendCrcIndMacToSch(CrcIndInfo *crcInd)
 
 /*******************************************************************
  *
+ * @brief ORAN_OAI Processes CRC Indication from PHY
+ *
+ * @details
+ *
+ *    Function : ORAN_OAI_fapiMacCrcInd
+ *
+ *    Functionality:
+ *       Processes CRC Indication from PHY
+ *
+ * @params[in] Post Structure Pointer
+ *             Crc Indication Pointer
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/
+uint8_t ORAN_OAI_fapiMacCrcInd(CrcInd *crcInd)
+{
+   uint16_t     cellIdx;
+   CrcIndInfo   crcIndInfo;
+   DU_LOG("\nDEBUG  -->  MAC : Received CRC indication");
+   GET_CELL_IDX(crcInd->cellId, cellIdx);
+   /* Considering one pdu and one preamble */ 
+   crcIndInfo.cellId = macCb.macCell[cellIdx]->cellId;
+   crcIndInfo.crnti = crcInd->crcInfo[0].rnti;
+   crcIndInfo.timingInfo.sfn = crcInd->timingInfo.sfn;
+   crcIndInfo.timingInfo.slot = crcInd->timingInfo.slot;
+   crcIndInfo.numCrcInd = crcInd->crcInfo[0].numCb;
+   crcIndInfo.crcInd[0] = crcInd->crcInfo[0].cbCrcStatus[0];
+
+   return(sendCrcIndMacToSch(&crcIndInfo));
+}
+
+/*******************************************************************
+ *
  * @brief Processes CRC Indication from PHY
  *
  * @details
@@ -157,6 +201,37 @@ uint8_t fapiMacCrcInd(Pst *pst, CrcInd *crcInd)
    return(sendCrcIndMacToSch(&crcIndInfo));
 }
 
+/*******************************************************************
+ *
+ * @brief ORAN_OAI Process Rx Data Ind at MAC
+ *
+ * @details
+ *
+ *    Function : ORAN_OAI_fapiMacRxDataInd
+ *
+ *    Functionality:
+ *       Process Rx Data Ind at MAC
+ *
+ * @params[in] Post structure
+ *             Rx Data Indication
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/
+uint8_t ORAN_OAI_fapiMacRxDataInd(RxDataInd *rxDataInd)
+{
+   uint16_t pduIdx;
+   DU_LOG("\nDEBUG  -->  MAC : Received Rx Data indication");
+   /* TODO : compare the handle received in RxDataInd with handle send in PUSCH
+    * PDU, which is stored in raCb */
+
+   for(pduIdx = 0; pduIdx < rxDataInd->numPdus; pduIdx++)
+   {
+      unpackRxData(rxDataInd->cellId, rxDataInd->timingInfo, &rxDataInd->pdus[pduIdx]);
+   }
+
+   return ROK;
+}
 /*******************************************************************
  *
  * @brief Process Rx Data Ind at MAC
@@ -211,8 +286,10 @@ uint8_t fapiMacRxDataInd(Pst *pst, RxDataInd *rxDataInd)
 uint8_t MacProcRlcDlData(Pst* pstInfo, RlcData *dlData)
 {
    uint8_t   pduIdx = 0;
+   uint8_t   ueId  = 0;
    uint8_t   lcIdx = 0;
    uint8_t   *txPdu = NULLP;
+   uint8_t   schInfoIdx = 0 ;
    uint16_t  cellIdx = 0, txPduLen = 0;
    MacDlData macDlData;
    MacDlSlot *currDlSlot = NULLP;
@@ -221,7 +298,11 @@ uint8_t MacProcRlcDlData(Pst* pstInfo, RlcData *dlData)
    memset(&macDlData , 0, sizeof(MacDlData));
    DU_LOG("\nDEBUG  -->  MAC: Received DL data for sfn=%d slot=%d numPdu= %d", \
       dlData->slotInfo.sfn, dlData->slotInfo.slot, dlData->numPdu);
+
+   GET_UE_ID(dlData->rnti, ueId);   
+
    /* Copy the pdus to be muxed into mac Dl data */
+   macDlData.ueId = ueId;
    macDlData.numPdu = dlData->numPdu;
    for(pduIdx = 0;  pduIdx < dlData->numPdu; pduIdx++)
    {
@@ -238,9 +319,17 @@ uint8_t MacProcRlcDlData(Pst* pstInfo, RlcData *dlData)
       return RFAILED;
    }
    currDlSlot = &macCb.macCell[cellIdx]->dlSlot[dlData->slotInfo.slot];
-   if(currDlSlot->dlInfo.dlMsgAlloc)
+   if(currDlSlot->dlInfo.dlMsgAlloc[ueId-1])
    {
-      txPduLen = currDlSlot->dlInfo.dlMsgAlloc->dlMsgPdschCfg.codeword[0].tbSize - TX_PAYLOAD_HDR_LEN;
+      for(schInfoIdx=0; schInfoIdx<currDlSlot->dlInfo.dlMsgAlloc[ueId-1]->numSchedInfo; schInfoIdx++)
+      {
+         if((currDlSlot->dlInfo.dlMsgAlloc[ueId-1]->dlMsgSchedInfo[schInfoIdx].pduPres == PDSCH_PDU) ||
+               (currDlSlot->dlInfo.dlMsgAlloc[ueId-1]->dlMsgSchedInfo[schInfoIdx].pduPres == BOTH))
+            break;
+      }
+
+      txPduLen = currDlSlot->dlInfo.dlMsgAlloc[ueId-1]->dlMsgSchedInfo[schInfoIdx].dlMsgPdschCfg.codeword[0].tbSize\
+                 - TX_PAYLOAD_HDR_LEN;
       MAC_ALLOC(txPdu, txPduLen);
       if(!txPdu)
       {
@@ -249,8 +338,8 @@ uint8_t MacProcRlcDlData(Pst* pstInfo, RlcData *dlData)
       }
       macMuxPdu(&macDlData, NULLP, txPdu, txPduLen);
 
-      currDlSlot->dlInfo.dlMsgAlloc->dlMsgInfo.dlMsgPduLen = txPduLen;
-      currDlSlot->dlInfo.dlMsgAlloc->dlMsgInfo.dlMsgPdu = txPdu;
+      currDlSlot->dlInfo.dlMsgAlloc[ueId-1]->dlMsgSchedInfo[schInfoIdx].dlMsgInfo.dlMsgPduLen = txPduLen;
+      currDlSlot->dlInfo.dlMsgAlloc[ueId-1]->dlMsgSchedInfo[schInfoIdx].dlMsgInfo.dlMsgPdu = txPdu;
    }
 
    for(lcIdx = 0; lcIdx < dlData->numLc; lcIdx++)
@@ -259,7 +348,7 @@ uint8_t MacProcRlcDlData(Pst* pstInfo, RlcData *dlData)
       {
          memset(&dlBoInfo, 0, sizeof(DlRlcBoInfo));
          dlBoInfo.cellId = dlData->boStatus[lcIdx].cellId;
-         GET_CRNTI(dlBoInfo.crnti, dlData->boStatus[lcIdx].ueIdx);
+         GET_CRNTI(dlBoInfo.crnti, dlData->boStatus[lcIdx].ueId);
          dlBoInfo.lcId = dlData->boStatus[lcIdx].lcId;
          dlBoInfo.dataVolume = dlData->boStatus[lcIdx].bo;
          sendDlRlcBoInfoToSch(&dlBoInfo);
@@ -359,10 +448,10 @@ uint8_t MacProcRlcBoStatus(Pst* pst, RlcBoStatus* boStatus)
    DlRlcBoInfo  dlBoInfo;
 
    dlBoInfo.cellId = boStatus->cellId;
-   GET_CRNTI(dlBoInfo.crnti, boStatus->ueIdx);
+   GET_CRNTI(dlBoInfo.crnti, boStatus->ueId);
    dlBoInfo.lcId = boStatus->lcId;
    dlBoInfo.dataVolume = boStatus->bo;
-
+   
    sendDlRlcBoInfoToSch(&dlBoInfo); 
 
    if(pst->selector == ODU_SELECTOR_LWLC)
@@ -388,7 +477,7 @@ uint8_t MacProcRlcBoStatus(Pst* pst, RlcBoStatus* boStatus)
  *         RFAILED - failure
  *
  * ****************************************************************/
-uint8_t sendSchedRptToRlc(DlSchedInfo dlInfo, SlotTimingInfo slotInfo)
+uint8_t sendSchedRptToRlc(DlSchedInfo dlInfo, SlotTimingInfo slotInfo, uint8_t ueIdx, uint8_t schInfoIdx)
 {
    Pst      pst;
    uint8_t  lcIdx;
@@ -403,16 +492,19 @@ uint8_t sendSchedRptToRlc(DlSchedInfo dlInfo, SlotTimingInfo slotInfo)
 
    DU_LOG("\nDEBUG  -->  MAC: Send scheduled result report for sfn %d slot %d", slotInfo.sfn, slotInfo.slot);
    schedRpt->cellId = dlInfo.cellId;
-   schedRpt->rnti = dlInfo.dlMsgAlloc->crnti;
-   schedRpt->numLc = dlInfo.dlMsgAlloc->numLc;
    schedRpt->slotInfo.sfn = slotInfo.sfn;
    schedRpt->slotInfo.slot = slotInfo.slot;
 
-   for(lcIdx = 0; lcIdx < schedRpt->numLc; lcIdx++)
+   if(dlInfo.dlMsgAlloc[ueIdx])
    {
-      schedRpt->lcSch[lcIdx].lcId = dlInfo.dlMsgAlloc->lcSchInfo[lcIdx].lcId;
-      schedRpt->lcSch[lcIdx].bufSize = dlInfo.dlMsgAlloc->lcSchInfo[lcIdx].schBytes;
-      schedRpt->lcSch[lcIdx].commCh = false;
+      schedRpt->rnti = dlInfo.dlMsgAlloc[ueIdx]->crnti;
+      schedRpt->numLc = dlInfo.dlMsgAlloc[ueIdx]->dlMsgSchedInfo[schInfoIdx].numLc;
+      for(lcIdx = 0; lcIdx < schedRpt->numLc; lcIdx++)
+      {
+         schedRpt->lcSch[lcIdx].lcId = dlInfo.dlMsgAlloc[ueIdx]->dlMsgSchedInfo[schInfoIdx].lcSchInfo[lcIdx].lcId;
+         schedRpt->lcSch[lcIdx].bufSize = dlInfo.dlMsgAlloc[ueIdx]->dlMsgSchedInfo[schInfoIdx].lcSchInfo[lcIdx].schBytes;
+         schedRpt->lcSch[lcIdx].commCh = false;
+      }
    }
 
    /* Fill Pst */
@@ -511,7 +603,7 @@ uint8_t MacProcCellStop(Pst *pst, OduCellId  *cellId)
  * ****************************************************************/
 uint8_t MacProcDlCcchInd(Pst *pst, DlCcchIndInfo *dlCcchIndInfo)
 {
-   uint8_t      ueIdx = 0;
+   uint8_t      ueId = 0, ueIdx = 0;
    uint16_t     cellIdx;
    uint16_t     idx;
    DlRlcBoInfo  dlBoInfo;
@@ -531,8 +623,8 @@ uint8_t MacProcDlCcchInd(Pst *pst, DlCcchIndInfo *dlCcchIndInfo)
       dlBoInfo.dataVolume = (dlCcchIndInfo->dlCcchMsgLen + 3) + (MAX_CRI_SIZE + 1);
 
       /* storing Msg4 Pdu in raCb */
-      GET_UE_IDX(dlBoInfo.crnti, ueIdx);
-      ueIdx = ueIdx -1;
+      GET_UE_ID(dlBoInfo.crnti, ueId);
+      ueIdx = ueId -1;
       if(macCb.macCell[cellIdx]->macRaCb[ueIdx].crnti == dlCcchIndInfo->crnti)
       {
 	 macCb.macCell[cellIdx]->macRaCb[ueIdx].msg4PduLen = dlCcchIndInfo->dlCcchMsgLen;
@@ -621,6 +713,8 @@ uint8_t macProcUlCcchInd(uint16_t cellId, uint16_t crnti, uint16_t rrcContSize, 
  *             lcg ID
  *             buffer size
  *
+ * @return ROK     - success
+ *         RFAILED - failure
  *
  * ****************************************************************/
 uint8_t macProcShortBsr(uint16_t cellId, uint16_t crnti, uint8_t lcgId, uint32_t bufferSize)
@@ -639,6 +733,48 @@ uint8_t macProcShortBsr(uint16_t cellId, uint16_t crnti, uint8_t lcgId, uint32_t
    bsrInd.dataVolInfo[0].dataVol = bufferSize;
 
    FILL_PST_MAC_TO_SCH(pst, EVENT_SHORT_BSR);
+   return(*macSchBsrOpts[pst.selector])(&pst, &bsrInd);
+}
+
+/*******************************************************************
+ *
+ * @brief Processes received short BSR
+ *
+ * @details
+ *
+ *    Function : macProcShortBsr
+ *
+ *    Functionality:
+ *        MAC sends Short BSR to SCH
+ *
+ * @params[in] cell ID
+ *             crnti
+ *             lcg ID
+ *             buffer size
+ *
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/
+uint8_t macProcLongBsr(uint16_t cellId, uint16_t crnti,uint8_t numLcg,\
+                         DataVolInfo dataVolInfo[MAX_NUM_LOGICAL_CHANNEL_GROUPS])
+{
+   Pst                  pst;
+   UlBufferStatusRptInd bsrInd;
+   uint8_t lcgIdx = 0;
+
+   memset(&pst, 0, sizeof(Pst));
+   memset(&bsrInd, 0, sizeof(UlBufferStatusRptInd));
+
+   bsrInd.cellId                 = cellId;
+   bsrInd.crnti                  = crnti;
+   bsrInd.bsrType                = LONG_BSR;
+   bsrInd.numLcg                 = numLcg; 
+
+   for(lcgIdx = 0; lcgIdx < numLcg; lcgIdx++)
+      memcpy(&(bsrInd.dataVolInfo[lcgIdx]), &(dataVolInfo[lcgIdx]), sizeof(DataVolInfo));
+
+   FILL_PST_MAC_TO_SCH(pst, EVENT_LONG_BSR);
    return(*macSchBsrOpts[pst.selector])(&pst, &bsrInd);
 }
 
@@ -679,6 +815,66 @@ uint8_t buildAndSendSrInd(UciInd *macUciInd, uint8_t crnti)
    FILL_PST_MAC_TO_SCH(pst, EVENT_UCI_IND_TO_SCH);
 
    return(*macSchSrUciIndOpts[pst.selector])(&pst, &srUciInd);
+}
+
+/*******************************************************************
+ *
+ * @brief ORAN_OAI Processes UCI Indication from PHY
+ *
+ * @details
+ *
+ *    Function : ORAN_OAI_fapiMacUciInd
+ *
+ *    Functionality:
+ *       Processes UCI Indication from PHY
+ *
+ * @params[in] Post Structure Pointer
+ *             UCI Indication Pointer
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/
+uint8_t ORAN_OAI_FapiMacUciInd(UciInd *macUciInd)
+{
+   uint8_t     pduIdx = 0;
+   uint8_t     ret = ROK;
+   uint16_t    nPdus;
+   uint16_t    crnti;
+
+   if(macUciInd)
+   {
+      nPdus = macUciInd->numUcis;
+      while(nPdus)
+      {
+         switch(macUciInd->pdus[pduIdx].pduType)
+         {
+            case UCI_IND_PUSCH:
+               break;
+            case UCI_IND_PUCCH_F0F1:
+               if(macUciInd->pdus[pduIdx].uci.uciPucchF0F1.srInfo.srIndPres)
+               {
+                  DU_LOG("\nDEBUG  -->  MAC : Received SR UCI indication");
+		  crnti = macUciInd->pdus[pduIdx].uci.uciPucchF0F1.crnti; 
+		  ret = buildAndSendSrInd(macUciInd, crnti);
+               }
+               break;
+            case UCI_IND_PUCCH_F2F3F4:
+               break;
+            default:
+               DU_LOG("\nERROR  -->  MAC: Invalid Pdu Type %d at FapiMacUciInd", macUciInd->pdus[pduIdx].pduType);
+               ret = RFAILED;
+               break;
+         }
+         pduIdx++;
+         nPdus--;
+      }
+   }
+   else
+   {
+      DU_LOG("\nERROR  -->  MAC: Received Uci Ind is NULL at FapiMacUciInd()");
+      ret = RFAILED;
+   }
+   return ret;
 }
 
 /*******************************************************************
@@ -742,6 +938,161 @@ uint8_t FapiMacUciInd(Pst *pst, UciInd *macUciInd)
    return ret;
 }
 
+/*******************************************************************
+ *
+ * @brief fill Slice Cfg Request info in shared structre
+ * 
+ * @details
+ *
+ *    Function : fillSliceCfgInfo 
+ *
+ *    Functionality:
+ *       fill Slice Cfg Request info in shared structre
+ *
+ * @params[in] SchSliceCfgReq *schSliceCfgReq 
+ *             MacSliceCfgReq *macSliceCfgReq;
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ **********************************************************************/
+ uint8_t fillSliceCfgInfo(SchSliceCfgReq *schSliceCfgReq, MacSliceCfgReq *macSliceCfgReq)
+ {
+    uint8_t cfgIdx = 0;
+    
+    if(macSliceCfgReq->listOfSliceCfg)
+    {
+       schSliceCfgReq->numOfConfiguredSlice =  macSliceCfgReq->numOfConfiguredSlice;
+       MAC_ALLOC(schSliceCfgReq->listOfConfirguration, schSliceCfgReq->numOfConfiguredSlice *sizeof(SchRrmPolicyOfSlice*));
+       if(schSliceCfgReq->listOfConfirguration == NULLP)
+       {
+          DU_LOG("\nERROR  -->  MAC : Memory allocation failed in fillSliceCfgInfo");
+          return RFAILED;
+       }
+       for(cfgIdx = 0; cfgIdx<schSliceCfgReq->numOfConfiguredSlice; cfgIdx++)
+       {
+          MAC_ALLOC(schSliceCfgReq->listOfConfirguration[cfgIdx], sizeof(SchRrmPolicyOfSlice));
+          if(schSliceCfgReq->listOfConfirguration[cfgIdx] == NULLP)
+          {
+             DU_LOG("\nERROR  -->  MAC : Memory allocation failed in fillSliceCfgInfo");
+             return RFAILED;
+          }
+          
+          memcpy(&schSliceCfgReq->listOfConfirguration[cfgIdx]->snssai, &macSliceCfgReq->listOfSliceCfg[cfgIdx]->snssai, sizeof(Snssai));
+
+          if(macSliceCfgReq->listOfSliceCfg[cfgIdx]->rrmPolicyRatio)
+          {
+             MAC_ALLOC(schSliceCfgReq->listOfConfirguration[cfgIdx]->rrmPolicyRatioInfo, sizeof(SchRrmPolicyRatio));
+             if(schSliceCfgReq->listOfConfirguration[cfgIdx]->rrmPolicyRatioInfo == NULLP)
+             {
+                DU_LOG("\nERROR  -->  MAC : Memory allocation failed in fillSliceCfgInfo");
+                return RFAILED;
+             }
+             schSliceCfgReq->listOfConfirguration[cfgIdx]->rrmPolicyRatioInfo->policyMaxRatio = macSliceCfgReq->listOfSliceCfg[cfgIdx]->rrmPolicyRatio->policyMaxRatio;
+             schSliceCfgReq->listOfConfirguration[cfgIdx]->rrmPolicyRatioInfo->policyMinRatio = macSliceCfgReq->listOfSliceCfg[cfgIdx]->rrmPolicyRatio->policyMinRatio;
+             schSliceCfgReq->listOfConfirguration[cfgIdx]->rrmPolicyRatioInfo->policyDedicatedRatio = macSliceCfgReq->listOfSliceCfg[cfgIdx]->rrmPolicyRatio->policyDedicatedRatio;
+          }
+       }
+    }
+    return ROK;
+ }
+/*******************************************************************
+ *
+ * @brief Processes Slice Cfg Request recived from DU
+ *
+ * @details
+ *
+ *    Function : MacProcSliceCfgReq 
+ *
+ *    Functionality:
+ *       Processes Processes Slice Cfg Request recived from DU
+ *
+ * @params[in] Post Structure Pointer
+ *             MacSliceCfgReq *macSliceCfgReq;
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ **********************************************************************/
+uint8_t MacProcSliceCfgReq(Pst *pst, MacSliceCfgReq *macSliceCfgReq)
+{
+   uint8_t ret = ROK;
+   Pst schPst;
+   SchSliceCfgReq *schSliceCfgReq;
+
+   DU_LOG("\nINFO  -->  MAC : Received Slice Cfg request from DU APP");
+   if(macSliceCfgReq)
+   {
+      MAC_ALLOC(schSliceCfgReq, sizeof(SchSliceCfgReq));
+      if(schSliceCfgReq == NULLP)
+      {
+         DU_LOG("\nERROR -->  MAC : Memory allocation failed in MacProcSliceCfgReq");
+         ret = RFAILED;
+      }
+      else
+      {
+         if(fillSliceCfgInfo(schSliceCfgReq, macSliceCfgReq) == ROK)
+         {
+            FILL_PST_MAC_TO_SCH(schPst, EVENT_SLICE_CFG_REQ_TO_SCH);
+            ret = (*macSchSliceCfgReqOpts[schPst.selector])(&schPst, schSliceCfgReq);
+         }
+      }
+      freeMacSliceCfgReq(macSliceCfgReq, pst); 
+   }
+   else
+   {
+      DU_LOG("\nINFO  -->  MAC : Received MacSliceCfgReq is NULL");
+   }
+   return ret;
+}
+
+/*******************************************************************
+ *
+ * @brief Processes Slice ReCfg Request recived from DU
+ *
+ * @details
+ *
+ *    Function : MacProcSliceReCfgReq 
+ *
+ *    Functionality:
+ *       Processes Processes Slice ReCfg Request recived from DU
+ *
+ * @params[in] Post Structure Pointer
+ *             MacSliceCfgReq *macSliceReCfgReq;
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ **********************************************************************/
+uint8_t MacProcSliceReCfgReq(Pst *pst, MacSliceCfgReq *macSliceReCfgReq)
+{
+   uint8_t ret = ROK;
+   Pst schPst;
+   SchSliceCfgReq *schSliceReCfgReq;
+
+   DU_LOG("\nINFO  -->  MAC : Received Slice ReCfg request from DU APP");
+   if(macSliceReCfgReq)
+   {
+      MAC_ALLOC(schSliceReCfgReq, sizeof(SchSliceCfgReq));
+      if(schSliceReCfgReq == NULLP)
+      {
+         DU_LOG("\nERROR -->  MAC : Memory allocation failed in MacProcSliceReCfgReq");
+         ret = RFAILED;
+      }
+      else
+      {
+         if(fillSliceCfgInfo(schSliceReCfgReq, macSliceReCfgReq) == ROK)
+         {
+            FILL_PST_MAC_TO_SCH(schPst, EVENT_SLICE_RECFG_REQ_TO_SCH);
+            ret = (*macSchSliceReCfgReqOpts[schPst.selector])(&schPst, schSliceReCfgReq);
+         }
+
+      }
+      freeMacSliceCfgReq(macSliceReCfgReq, pst);
+   }
+   else
+   {
+      DU_LOG("\nINFO  -->  MAC : Received MacSliceCfgReq is NULL");
+   }
+   return ret;
+}
 
 /**********************************************************************
   End of file

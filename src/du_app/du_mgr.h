@@ -59,6 +59,13 @@
 
 typedef enum
 {
+   SLICE_INFO_NOT_AVAILABLE,
+   SLICE_CONFIGURED,
+   SLICE_RECONFIGURED
+}SliceCfgState;
+
+typedef enum
+{
    CELL_OUT_OF_SERVICE,
    ACTIVATION_IN_PROGRESS,
    ACTIVATED,
@@ -110,7 +117,7 @@ typedef struct upTnlCfg
 {
    ConfigType configType;
    uint8_t cellId;
-   uint8_t ueIdx;
+   uint8_t ueId;
    uint8_t drbId;
    GtpTnlCfg *tnlCfg1; /* Tunnel 1 */
    GtpTnlCfg *tnlCfg2; /* Tunnel 2 */
@@ -127,6 +134,7 @@ typedef struct duUeCfg
    AmbrCfg *ambrCfg;
    uint8_t numDrb;
    UpTnlCfg upTnlInfo[MAX_NUM_DRB];  /* User plane TNL Info*/
+   uint8_t numDrbSetupMod;        /*No. of DRB Added during Modification*/
    MacUeCfg copyOfmacUeCfg;
 }DuUeCfg;
 
@@ -213,9 +221,10 @@ typedef struct duCb
    DuCellCb*     actvCellLst[MAX_NUM_CELL]; /* List of cells activated/to be activated of type DuCellCb */
    uint32_t      numUe;                     /* current number of UEs */
    UeCcchCtxt    ueCcchCtxt[MAX_NUM_UE];    /* mapping of gnbDuUeF1apId to CRNTI required for CCCH processing*/
-   uint8_t       numDrb;                    /* current number of DRbs*/
-   UpTnlCfg*     upTnlCfg[MAX_NUM_DRB];     /* tunnel info for every Drb */
+   uint8_t       numTeId;                    /* current number of TEIDs configured in the system*/
+   UpTnlCfg*     upTnlCfg[MAX_TEID];     /* tunnel info for every Drb */
    CmLListCp     reservedF1apPduList;       /*storing F1AP pdu infomation and transId */
+   SliceCfgState sliceState;
 }DuCb;
 
 
@@ -272,6 +281,10 @@ uint8_t duSendEgtpDatInd(Buffer *mBuf);
 uint8_t duHdlSchCfgComplete(Pst *pst, RgMngmt *cfm);
 uint8_t duBuildAndSendMacCellStart();
 uint8_t duBuildAndSendMacCellStop(uint16_t cellId);
+
+
+// VNF_ENABLE
+uint8_t duBuildAndSendMacVnfCfg();
 #endif
 
 /**********************************************************************

@@ -272,7 +272,7 @@ S16 sctpNtfyHdlr(CmInetSctpNotification *ntfy)
          switch(ntfy->u.assocChange.state)
          {
             case CM_INET_SCTP_COMM_UP:
-               DU_LOG("\nINFO   -->  Event : COMMUNICATION UP");
+               DU_LOG("\nINFO   -->  Event : COMMUNICATION UP in ric");
                connUp = TRUE;
                break;
             case CM_INET_SCTP_COMM_LOST:

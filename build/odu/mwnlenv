@@ -1,0 +1,8 @@
+alias build_odu='make odu MACHINE=BIT64 MODE=FDD VNF_ENABLE=YES'
+alias clean_odu='make clean_odu MACHINE=BIT64 MODE=FDD VNF_ENABLE=YES'
+
+alias build_ocu='make cu_stub MACHINE=BIT64 MODE=FDD NODE=TEST_STUB'
+alias clean_ocu='make clean_cu MACHINE=BIT64 MODE=FDD NODE=TEST_STUB'
+
+alias build_ric='make ric_stub MACHINE=BIT64 MODE=FDD NODE=TEST_STUB'
+alias clean_ric='make clean_ric MACHINE=BIT64 MODE=FDD NODE=TEST_STUB'

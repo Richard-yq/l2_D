@@ -51,17 +51,33 @@ typedef enum{
    C_RNTI_TYPE
 }RntiType;
 
+void sendToLowerMac(uint16_t, uint32_t, void *);
+void procPhyMessages(uint16_t msgType, uint32_t msgSize, void *msg);
+uint16_t fillDlTtiReq(SlotTimingInfo currTimingInfo);
+uint16_t ORAN_OAI_fillDlTtiReq(SlotTimingInfo currTimingInfo);
+typedef uint8_t (*lwrMacFsmHdlr)(void *);
+void lwrMacLayerInit(Region region, Pool pool);
+
+// O-RAN defines
 uint8_t lwr_mac_procInvalidEvt(void *msg);
 uint8_t lwr_mac_procParamReqEvt(void *msg);
 uint8_t lwr_mac_procParamRspEvt(void *msg);
 uint8_t lwr_mac_procConfigReqEvt(void *msg);
 uint8_t lwr_mac_procConfigRspEvt(void *msg);
 uint8_t lwr_mac_procStartReqEvt(void *msg);
-void sendToLowerMac(uint16_t, uint32_t, void *);
-void procPhyMessages(uint16_t msgType, uint32_t msgSize, void *msg);
-uint16_t fillDlTtiReq(SlotTimingInfo currTimingInfo);
-typedef uint8_t (*lwrMacFsmHdlr)(void *);
-void lwrMacLayerInit(Region region, Pool pool);
+
+// VNF_ENABLE
+uint8_t intgr_lwr_mac_procPhyStartEvt(void* msg);
+uint8_t intgr_lwr_mac_procVnfCfgStartEvt(void *msg);
+uint8_t intgr_lwr_mac_procPNFParamReqEvt(void *msg);
+uint8_t intgr_lwr_mac_procPNFParamRspEvt(void *msg);
+uint8_t intgr_lwr_mac_procPNFConfigReqEvt(void *msg);
+uint8_t intgr_lwr_mac_procPNFConfigRspEvt(void *msg);
+uint8_t intgr_lwr_mac_procPNFStartReqEvt(void *msg);
+uint8_t intgr_lwr_mac_procPNFStartRspEvt(void *msg);
+uint8_t intgr_lwr_mac_procConfigRspEvt(uint32_t msgLen, void *msg);
+uint8_t intgr_lwr_mac_procStartRspEvt(uint32_t msgLen, void *msg);
+
 
 #endif
 

@@ -37,7 +37,6 @@
 #define SEARCHSPACE_4_INDEX   4
 #define SS_MONITORING_SLOT_SL1   0 /* all slots */
 #define SS_MONITORING_SYMBOL     0x2000; /* symbol-0, set 14th bit */
-#define SIB1_MCS  4
 
 /* Macro for Ue Context */
 #define MAX_NUM_SR_CFG_PER_CELL_GRP 8   /* Max number of scheduling request config per cell group */
@@ -48,8 +47,6 @@
 #define MONITORING_SYMB_WITHIN_SLOT_SIZE 2  /* i.e. 2 bytes because size of monitoring symbols within slot is 14 bits */
 #define MAX_NUM_DL_ALLOC 16             /* Max number of pdsch time domain downlink allocation */
 #define MAX_NUM_UL_ALLOC 16             /* Max number of pusch time domain uplink allocation */
-#define SD_SIZE   3                     /* Max size of Slice Differentiator in S-NSSAI */
-
 #define MAX_NUM_SCELL  32
 
 /* PUCCH Configuration Macro */
@@ -78,6 +75,14 @@
 #define EVENT_MAC_UE_DELETE_RSP      213
 #define EVENT_MAC_CELL_DELETE_REQ    214
 #define EVENT_MAC_CELL_DELETE_RSP    215
+#define EVENT_MAC_SLICE_CFG_REQ      216
+#define EVENT_MAC_SLICE_CFG_RSP      217
+#define EVENT_MAC_SLICE_RECFG_REQ    218
+#define EVENT_MAC_SLICE_RECFG_RSP    219
+
+// VNF_ENABLE
+#include "../nfapi/nfapi_vnf_interface.h"
+#define EVENT_MAC_VNF_CONFIG_REQ     220
 
 #define BSR_PERIODIC_TIMER_SF_10 10
 #define BSR_RETX_TIMER_SF_320 320
@@ -91,9 +96,15 @@ typedef enum
 
 typedef enum
 {
+   SLICE_PRESENT,
+   SLICE_NOT_PRESENT
+}RspReason;
+
+typedef enum
+{
    SUCCESS,
    CELLID_INVALID,
-   UEIDX_INVALID
+   UEID_INVALID
 }UeDeleteStatus;
 
 typedef enum
@@ -489,6 +500,13 @@ typedef enum
    MCS_TABLE_QAM64_LOW_SE
 }McsTable;
 
+typedef enum
+{
+   RSRC_PRB,
+   RSRC_DRB,
+   RSRC_RRC_CONNECTED_USERS
+}ResourceType;
+
 typedef struct failureCause
 {
    CauseGrp   type;
@@ -654,6 +672,13 @@ typedef struct bwpUlConfig
    PuschConfigCommon puschCommon;
 }BwpUlConfig;
 
+typedef struct plmnInfoList
+{
+   Plmn           plmn;
+   uint8_t        numSupportedSlice; /* Total slice supporting */
+   Snssai         **snssai;         /* List of supporting snssai*/
+}PlmnInfoList;
+
 typedef struct macCellCfg
 {
    uint16_t       cellId;           /* Cell Id */
@@ -674,6 +699,8 @@ typedef struct macCellCfg
    BwpDlConfig    initialDlBwp;     /* Initial DL BWP */
    BwpUlConfig    initialUlBwp;     /* Initial UL BWP */
    uint8_t        dmrsTypeAPos;     /* DMRS Type A position */
+   PlmnInfoList   plmnInfoList;     /* Consits of PlmnId and Snssai list */
+   //RrmPolicy      *rrmPolicy;       /* RRM policy details */ 
 }MacCellCfg;
 
 typedef struct macCellCfgCfm
@@ -1112,13 +1139,6 @@ typedef struct ambrCfg
    uint32_t ulBr;   /* UL Bit rate */
 }AmbrCfg;
 
-/* Single Network Slice Selection assistance Info */
-typedef struct snssai
-{
-   uint8_t sst;                /* Slice Type */
-   uint8_t sd[SD_SIZE];        /* Slice Differentiator */
-}Snssai;
-
 typedef struct nonDynFiveQi
 {
    uint16_t   fiveQi;
@@ -1203,7 +1223,7 @@ typedef struct modulationInfo
 typedef struct macUeCfg
 {
    uint16_t cellId;
-   uint8_t  ueIdx;
+   uint8_t  ueId;
    uint16_t crnti;
    bool macCellGrpCfgPres;
    MacCellGrpCfg macCellGrpCfg;
@@ -1246,7 +1266,7 @@ typedef struct sCellFailInfo
 typedef struct ueCfgRsp
 {
    uint16_t       cellId;
-   uint16_t       ueIdx;
+   uint16_t       ueId;
    MacRsp         result;
    uint8_t        numSRBFailed;   /* valid values : 0 to MAX_NUM_SRB */ 
    SRBFailInfo    *failedSRBlisti;
@@ -1280,6 +1300,38 @@ typedef struct macCellDeleteRsp
    uint16_t cellId;
    CellDeleteStatus result;
 }MacCellDeleteRsp;
+
+typedef struct macSliceRsp
+{
+   Snssai     snssai;
+   MacRsp     rsp;
+   RspReason  cause;  
+}MacSliceRsp;
+
+typedef struct rrmPolicyRatio
+{
+   uint8_t policyMaxRatio;
+   uint8_t policyMinRatio;
+   uint8_t policyDedicatedRatio;
+}RrmPolicyRatio;
+
+typedef struct macSliceRrmPolicy
+{
+   Snssai  snssai;
+   RrmPolicyRatio *rrmPolicyRatio;
+}MacSliceRrmPolicy;
+
+typedef struct macSliceCfgReq
+{
+   uint8_t  numOfConfiguredSlice;
+   MacSliceRrmPolicy **listOfSliceCfg;
+}MacSliceCfgReq;
+
+typedef struct macSliceCfgRsp
+{
+   uint8_t  numSliceCfgRsp;
+   MacSliceRsp  **listOfSliceCfgRsp;
+}MacSliceCfgRsp;
 
 /* Functions for slot Ind from MAC to DU APP*/
 typedef uint8_t (*DuMacCellUpInd) ARGS((
@@ -1363,6 +1415,37 @@ typedef uint8_t (*MacDuCellDeleteRspFunc) ARGS((
      Pst            *pst,
      MacCellDeleteRsp *cellDeleteRsp));
 
+/* Slice Cfg Request from DU APP to MAC*/
+typedef uint8_t (*DuMacSliceCfgReq) ARGS((
+     Pst           *pst,
+     MacSliceCfgReq *CfgReq));
+
+/* Slice Cfg Response from MAC to DU APP */
+typedef uint8_t (*MacDuSliceCfgRspFunc) ARGS((
+	 Pst           *pst, 
+	 MacSliceCfgRsp   *cfgRsp));
+
+/* Slice ReReCfg Request from DU APP to MAC*/
+typedef uint8_t (*DuMacSliceRecfgReq) ARGS((
+     Pst           *pst,
+     MacSliceCfgReq *CfgReq));
+
+/* Slice ReReCfg Response from MAC to DU APP */
+typedef uint8_t (*MacDuSliceReCfgRspFunc) ARGS((
+        Pst           *pst,
+        MacSliceCfgRsp   *cfgRsp));
+
+// VNF_ENABLE
+/* Functions pointers for packing macvnfCfg Request */
+typedef uint8_t (*packMacVnfCfgReq) ARGS((
+	 Pst           *pst,
+	 p5_p7_cfg    *vnf_config ));
+
+typedef uint8_t (*DuMacVnfCfgReq) ARGS((
+	 Pst        *pst,        
+	 p5_p7_cfg *vnf_config));
+
+
 uint8_t packMacCellUpInd(Pst *pst, OduCellId *cellId);
 uint8_t unpackMacCellUpInd(DuMacCellUpInd func, Pst *pst, Buffer *mBuf);
 uint8_t duHandleCellUpInd(Pst *pst, OduCellId *cellId);
@@ -1409,6 +1492,23 @@ uint8_t unpackMacCellDeleteReq(DuMacCellDeleteReq func, Pst *pst, Buffer *mBuf);
 uint8_t packDuMacCellDeleteRsp(Pst *pst, MacCellDeleteRsp *cellDeleteRsp);
 uint8_t DuProcMacCellDeleteRsp(Pst *pst, MacCellDeleteRsp *cellDeleteRsp);
 uint8_t unpackDuMacCellDeleteRsp(MacDuCellDeleteRspFunc func, Pst *pst, Buffer *mBuf);
+uint8_t packDuMacSliceCfgReq(Pst *pst, MacSliceCfgReq *sliceCfgReq);
+uint8_t MacProcSliceCfgReq(Pst *pst, MacSliceCfgReq *sliceCfgReq);
+uint8_t unpackMacSliceCfgReq(DuMacSliceCfgReq func, Pst *pst, Buffer *mBuf);
+uint8_t DuProcMacSliceCfgRsp(Pst *pst,  MacSliceCfgRsp *cfgRsp);
+uint8_t packDuMacSliceCfgRsp(Pst *pst, MacSliceCfgRsp *cfgRsp);
+uint8_t unpackDuMacSliceCfgRsp(MacDuSliceCfgRspFunc func, Pst *pst, Buffer *mBuf);
+uint8_t packDuMacSliceRecfgReq(Pst *pst, MacSliceCfgReq *sliceReCfgReq);
+uint8_t MacProcSliceReCfgReq(Pst *pst, MacSliceCfgReq *sliceReCfgReq);
+uint8_t unpackMacSliceReCfgReq(DuMacSliceRecfgReq func, Pst *pst, Buffer *mBuf);
+uint8_t DuProcMacSliceReCfgRsp(Pst *pst,  MacSliceCfgRsp *cfgRsp);
+uint8_t packDuMacSliceReCfgRsp(Pst *pst, MacSliceCfgRsp *cfgRsp);
+uint8_t unpackDuMacSliceReCfgRsp(MacDuSliceReCfgRspFunc func, Pst *pst, Buffer *mBuf);
+
+//VNF_ENABLE
+uint8_t packMacVnfCfg(Pst* pst, p5_p7_cfg* vnf_config);
+uint8_t unpackDuMacVnfCfg(DuMacVnfCfgReq func, Pst* pst, Buffer* mBuf);
+uint8_t MacProcVnfCfgReq(Pst* pst, p5_p7_cfg* vnf_config);
 
 #endif
 

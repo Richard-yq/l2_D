@@ -273,6 +273,16 @@ void callFlowduActvTsk(Pst *pst)
                      strcpy(message,"EVENT_MAC_CELL_DELETE_RSP");
                      break;
                   }
+               case EVENT_MAC_SLICE_CFG_RSP:
+                  {
+                     strcpy(message,"EVENT_MAC_SLICE_CFG_RSP");
+                     break;
+                  }
+               case EVENT_MAC_SLICE_RECFG_RSP:
+                  {
+                     strcpy(message,"EVENT_MAC_SLICE_RECFG_RSP");
+                     break;
+                  }
                default:
                   {
                      strcpy(message,"Invalid Event");
@@ -388,6 +398,13 @@ uint8_t duActvTsk(Pst *pst, Buffer *mBuf)
                      ODU_PUT_MSG_BUF(mBuf);
                      break;
                   }
+
+               case EVT_VNF_CFG :{
+                     DU_LOG("\n****** Received initial vnf configs at DU APP ******\n");
+                     duBuildAndSendMacVnfCfg();
+                     ODU_PUT_MSG_BUF(mBuf);
+                     break;
+               }
                default:
                   {
                      DU_LOG("\nERROR  -->  DU_APP : Invalid event received at duActvTsk from ENTDUAPP");
@@ -449,6 +466,11 @@ uint8_t duActvTsk(Pst *pst, Buffer *mBuf)
                case EVENT_UL_USER_DATA_TRANS_TO_DU:
                   {
                      ret = unpackRlcUlUserDataToDu(DuProcRlcUlUserDataTrans, pst, mBuf);
+                     break;
+                  }
+               case EVENT_RLC_SLICE_PM_TO_DU:
+                  {
+                     ret = unpackRlcSlicePm(DuProcRlcSliceMetrics, pst, mBuf);
                      break;
                   }
                default:
@@ -523,6 +545,16 @@ uint8_t duActvTsk(Pst *pst, Buffer *mBuf)
                case EVENT_MAC_CELL_DELETE_RSP:
                   {
                      ret = unpackDuMacCellDeleteRsp(DuProcMacCellDeleteRsp, pst, mBuf);
+                     break;
+                  }
+               case EVENT_MAC_SLICE_CFG_RSP:
+                  {
+                     ret = unpackDuMacSliceCfgRsp(DuProcMacSliceCfgRsp, pst, mBuf);
+                     break;
+                  }
+               case EVENT_MAC_SLICE_RECFG_RSP:
+                  {
+                     ret = unpackDuMacSliceReCfgRsp(DuProcMacSliceReCfgRsp, pst, mBuf);
                      break;
                   }
                default:

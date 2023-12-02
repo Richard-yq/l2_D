@@ -213,31 +213,36 @@ typedef struct
    UciIndPduInfo pdus[MAX_UCI_PDUS_PER_TTI];
 }UciInd;
 
-typedef uint8_t (*SlotIndFunc)(Pst *pst, SlotTimingInfo *slotInd);
+typedef uint8_t (*SlotIndFunc)(Pst *pst, NR_UL_IND_t *UL_INFO);
 typedef uint8_t (*RachIndFunc)(Pst *pst, RachInd *rachInd);
 typedef uint8_t (*CrcIndFunc)(Pst *pst, CrcInd *crcInd);
 typedef uint8_t (*RxDataIndFunc)(Pst *pst, RxDataInd *rxDataInd);
 typedef uint8_t (*StopIndFunc)(Pst *pst, uint16_t *cellId);
 typedef uint8_t (*UciIndFunc)(Pst *pst, UciInd *uciInd);
 
-uint8_t packSlotInd (Pst *pst, SlotTimingInfo *slotInd);
+uint8_t packSlotInd (Pst *pst, NR_UL_IND_t *UL_INFO);
 uint8_t unpackSlotInd(SlotIndFunc func, Pst *pst, Buffer *mBuf);
-uint8_t fapiMacSlotInd(Pst  *pst, SlotTimingInfo  *slotInd);
+uint8_t fapiMacSlotInd(Pst *pst, NR_UL_IND_t *UL_INFO);
 uint8_t packRachInd(Pst *pst, RachInd *rachInd);
 uint8_t unpackRachInd(RachIndFunc func, Pst *pst, Buffer *mBuf);
 uint8_t fapiMacRachInd(Pst *pst, RachInd *rachInd);
+uint8_t ORAN_OAI_fapiMacRachInd(RachInd *rachInd);
 uint8_t packCrcInd(Pst *pst, CrcInd *crcInd);
 uint8_t unpackCrcInd(CrcIndFunc func, Pst *pst, Buffer *mBuf);
 uint8_t fapiMacCrcInd(Pst *pst, CrcInd *crcInd);
+uint8_t ORAN_OAI_fapiMacCrcInd(CrcInd *crcInd);
 uint8_t packRxDataInd(Pst *pst, RxDataInd *rxDataInd);
 uint8_t unpackRxDataInd(RxDataIndFunc func, Pst *pst, Buffer *mBuf);
 uint8_t fapiMacRxDataInd(Pst *pst, RxDataInd *rxDataInd);
+uint8_t ORAN_OAI_fapiMacRxDataInd(RxDataInd *rxDataInd);
 uint8_t packStopInd(Pst *pst, uint16_t *cellId);
 uint8_t unpackStopInd(StopIndFunc func, Pst *pst, Buffer *mBuf);
 uint8_t fapiMacStopInd(Pst *pst, uint16_t *cellId);
 uint8_t packUciInd(Pst *pst, UciInd *uciInd);
 uint8_t unpackUciInd(UciIndFunc func, Pst *pst, Buffer *mBuf);
 uint8_t FapiMacUciInd(Pst *pst, UciInd *uciInd);
+uint8_t ORAN_OAI_FapiMacUciInd(UciInd *macUciInd);
+uint8_t fillUciIndPucchF0F1(UciPucchF0F1 *pduInfo, nfapi_nr_uci_pucch_pdu_format_0_1_t *fapiPduInfo);
 
 #endif
 /**********************************************************************

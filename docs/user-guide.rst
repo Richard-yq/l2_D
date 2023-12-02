@@ -4,7 +4,7 @@
 User Guide
 ***********
 
-This is the user guide for D release of O-DU/l2.
+This is the user guide for e-release of O-DU/l2.
 Follow installation-guide to get all the dependencies ready.
 
 .. contents::
@@ -58,6 +58,7 @@ PS: If O1 interface is enabled, IPs should match those configured in "startup_co
       - ./odu
 
 PS: CU stub and RIC stub must be run (in no particular sequence) before ODU. 
+    In case O1 is enabled and SMO is not available follow section E below.
 
 II. Execution - Using Docker Images
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -65,17 +66,17 @@ II. Execution - Using Docker Images
 The call flow between O-DU High and CU Stub can be achieved by executing docker containers.
 
 - Pull the last built docker images:
-    -	docker pull nexus3.o-ran-sc.org:10004/o-ran-sc/o-du-l2:4.0.1
-    -	docker pull nexus3.o-ran-sc.org:10004/o-ran-sc/o-du-l2-cu-stub:4.0.1
+    -	docker pull nexus3.o-ran-sc.org:10004/o-ran-sc/o-du-l2:5.0.3
+    -	docker pull nexus3.o-ran-sc.org:10004/o-ran-sc/o-du-l2-cu-stub:5.0.3
 
 - Run CU Stub docker:
     - docker run -it --privileged --net=host --entrypoint bash
-      nexus3.o-ran-sc.org:10004/o-ran-sc/o-du-l2-cu-stub:4.0.1   
+      nexus3.o-ran-sc.org:10004/o-ran-sc/o-du-l2-cu-stub:5.0.3   
     - ./cu_stub
 
 - Run ODU docker:
     - docker run -it --privileged --net=host --entrypoint bash
-      nexus3.o-ran-sc.org:10004/o-ran-sc/o-du-l2:4.0.1   
+      nexus3.o-ran-sc.org:10004/o-ran-sc/o-du-l2:5.0.3   
     - ./odu
 
 
@@ -241,3 +242,15 @@ Here are the steps as executed in the terminal
      |  </odu>
 
 The XML output is a list of active alarms in the O-DU High system.
+
+E. Push cell and slice configuration over O1 using netopeer-cli
+---------------------------------------------------------------
+
+When O-DU High is run with O1 enabled it waits for cell configuration to be pushed by SMO. In case the SMO is not available then these configurations can be pushed via netopeer-cli as follows.
+
+   1. Follow step D.1 and D.2.
+   2. update cellConfig.xml and rrmPolicy.xml.
+
+      | $cd <O-DU High Directory>/l2/build/config
+      | $edit-config --target candidate --config=cellConfig.xml
+      | $edit-config --target candidate --config=rrmPolicy.xml

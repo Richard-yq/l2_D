@@ -37,8 +37,23 @@ typedef enum
    PHY_STATE_IDLE,
    PHY_STATE_CONFIGURED,
    PHY_STATE_RUNNING,
+
+   // VNF_ENABLE
+   // PNF_STATE_IDLE,
+   // PNF_STATE_CONFIGURED,
+   // PNF_STATE_RUNNING,
+
    MAX_STATE   
 }PhyState;
+
+typedef enum
+{
+   PNF_STATE_IDLE,
+   PNF_STATE_CONFIGURED,
+   PNF_STATE_RUNNING,
+   PNF_MAX_STATE
+   
+}PnfState;
 
 /* Events in Lower Mac */
 typedef enum{
@@ -51,7 +66,17 @@ typedef enum{
    CONFIG_RESPONSE,
    START_REQUEST,
    STOP_REQUEST,
-   MAX_EVENT
+   
+   // VNF_ENABLE
+   VNF_START_CFG_REQUEST,
+   PNF_PARAM_REQUEST,
+   PNF_PARAM_RESPONSE,
+   PNF_CONFIG_REQUEST,
+   PNF_CONFIG_RESPONSE,
+   PNF_START_REQUEST,
+   PNF_START_RESPONSE,
+
+   MAX_EVENT,
 }EventState;
 
 typedef struct cellCb
@@ -269,7 +294,7 @@ typedef struct clCellParam
    RssiMeasurement       rssiMeasurementSupport;
 }ClCellParam;
 
-LwrMacCb lwrMacCb; 
+LwrMacCb lwrMacCb;
 LwrMacCellCb * lwrMacGetCellCb ARGS((uint16_t cellId));
 uint32_t reverseBits(uint32_t num, uint8_t numBits);
 void fillDlDciPayload(uint8_t *buf, uint8_t *bytePos, uint8_t *bitPos,\

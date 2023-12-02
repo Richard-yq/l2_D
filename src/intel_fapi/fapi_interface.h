@@ -280,6 +280,7 @@ extern "C" {
     } fapi_msg_header_t,
     *p_fapi_msg_header_t;
 
+
 // Updated per 5G FAPI
     typedef struct {
         uint16_t msg_id;
@@ -1025,6 +1026,10 @@ extern "C" {
             fapi_ul_srs_pdu_t srs_pdu;
         } pdu;
     } fapi_ul_tti_req_pdu_t;    // 5G FAPI Subset Table 3-44
+
+// ORAN@OAI
+
+   
 
 // Updated per 5G FAPI
     typedef struct {

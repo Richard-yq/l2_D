@@ -2164,7 +2164,7 @@ uint16_t          port          /* port number */
             " sockFd->fd(%ld)\n", INET_ERR_CODE, port, sockFd->fd);
       CMINETLOGERROR(ERRCLS_DEBUG, ECMINET010, 0, prntBuf);
 #else
-      DU_LOG("\nCmInetSctpConnectx() Failed : error(%d), port(0x%1x),\
+      DU_LOG("\nCmInetSctpConnectx() Failed test: error(%d), port(0x%1x),\
 		   sockFd->fd(%d)\n", INET_ERR_CODE, port, sockFd->fd);
 #endif /*ALIGN_64BIT*/
 #endif /* CMINETDBG */

@@ -1,3 +1,10 @@
 # documentation
 .tox
 docs/_build/
+
+# l2/build/netconf/Netopeer2
+# l2/build/netconf/libnetconf2
+# l2/build/netconf/libyang
+# l2/build/netconf/sysrepo
+build/netconf
+build/odu/obj

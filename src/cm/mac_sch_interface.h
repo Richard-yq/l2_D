@@ -35,18 +35,15 @@
 #define EVENT_UE_DELETE_RSP_TO_MAC   16
 #define EVENT_CELL_DELETE_REQ_TO_SCH   17
 #define EVENT_CELL_DELETE_RSP_TO_MAC   18
-
+#define EVENT_LONG_BSR              19
+#define EVENT_SLICE_CFG_REQ_TO_SCH  20
+#define EVENT_SLICE_CFG_RSP_TO_MAC  21
+#define EVENT_SLICE_RECFG_REQ_TO_SCH  22
+#define EVENT_SLICE_RECFG_RSP_TO_MAC  23
 
 /*macros*/
-#define NO_SSB 0
-#define SSB_TRANSMISSION 1
-#define SSB_REPEAT 2
 #define MAX_SSB_IDX 1 /* forcing it as 1 for now. Right value is 64 */
 #define SCH_SSB_MASK_SIZE   1
-
-#define NO_SIB1 0
-#define SIB1_TRANSMISSION 1
-#define SIB1_REPITITION 2
 
 #define MAX_NUM_PRG     1 /* max value should be later 275 */
 #define MAX_DIG_BF_INTERFACES 0 /* max value should be later 255 */
@@ -90,10 +87,11 @@
 #define MAX_NUM_PUCCH_P0_PER_SET 8
 #define MAX_NUM_PATH_LOSS_REF_RS 4
 #define MAX_NUM_DL_DATA_TO_UL_ACK 15
-#define SD_SIZE   3
+#define QPSK_MODULATION 2
 
 #define RAR_PAYLOAD_SIZE 10             /* As per spec 38.321, sections 6.1.5 and 6.2.3, RAR PDU is 8 bytes long and 2 bytes of padding */
 #define TX_PAYLOAD_HDR_LEN 32           /* Intel L1 requires adding a 32 byte header to transmitted payload */
+#define UL_TX_BUFFER_SIZE 5
 
 #define MAX_NUM_CONFIG_SLOTS 160  /*Max number of slots as per the numerology*/
 #define MAX_NUM_K0_IDX 16 /* Max number of pdsch time domain downlink allocation */
@@ -126,6 +124,26 @@
 
 typedef enum
 {
+   PRB_RSRC,
+   DRB_RSRC,
+   RRC_CONNECTED_USERS_RSRC
+}SchResourceType;
+
+typedef enum
+{
+   SLICE_FOUND,
+   SLICE_NOT_FOUND
+}RspCause;
+
+typedef enum
+{
+   NO_TRANSMISSION,
+   NEW_TRANSMISSION,
+   REPEATITION 
+}PduTxOccsaion;
+
+typedef enum
+{
    UNSPECIFIED_CAUSE,
    INVALID_PARAM_VALUE,
    RESOURCE_UNAVAILABLE,
@@ -148,7 +166,7 @@ typedef enum
 {
    NOT_APPLICABLE,
    INVALID_CELLID,
-   INVALID_UEIDX
+   INVALID_UEID
 }ErrorCause;
 
 typedef enum
@@ -401,6 +419,14 @@ typedef enum
    SCH_MCS_TABLE_QAM_64_LOW_SE
 }SchMcsTable;
 
+typedef enum
+{
+   NONE,
+   PDCCH_PDU,
+   PDSCH_PDU,
+   BOTH
+}DlPduType;
+
 /*structures*/
 typedef struct timeDomainAlloc
 {
@@ -607,8 +633,9 @@ typedef struct schCandidatesInfo
 
 typedef struct schSearchSpaceCfg
 {
-   uint8_t searchSpaceId;
-   uint8_t coresetId;
+   uint8_t  searchSpaceId;
+   uint8_t  coresetId;
+   uint8_t  freqDomainRsrc[FREQ_DOM_RSRC_SIZE];  /* Frequency domain resource */
    uint16_t monitoringSlot;
    uint16_t duration;
    uint16_t monitoringSymbol;
@@ -705,8 +732,16 @@ typedef struct schBwpUlCfg
    SchBwpParams   bwp;
    SchPucchCfgCmn pucchCommon;
    SchPuschCfgCmn puschCommon;
+   SchK2TimingInfoTbl msg3K2InfoTbl;
    SchK2TimingInfoTbl k2InfoTbl;
 }SchBwpUlCfg;
+
+typedef struct schPlmnInfoList
+{
+   Plmn           plmn;
+   uint8_t        numSliceSupport; /* Total slice supporting */
+   Snssai         **snssai;         /* List of supporting snssai*/
+}SchPlmnInfoList;
 
 typedef struct schCellCfg
 {
@@ -722,9 +757,10 @@ typedef struct schCellCfg
    SchRachCfg     schRachCfg;       /* PRACH config */
    SchBwpDlCfg    schInitialDlBwp;  /* Initial DL BWP */
    SchBwpUlCfg    schInitialUlBwp;  /* Initial UL BWP */
+   SchPlmnInfoList plmnInfoList;     /* Consits of PlmnId and Snssai list */
 #ifdef NR_TDD
    TDDCfg         tddCfg;           /* TDD Cfg */ 
-#endif
+#endif   
 }SchCellCfg;
 
 typedef struct schCellCfgCfm
@@ -797,6 +833,8 @@ typedef struct rarInfo
 
 typedef struct rarAlloc
 {
+   DlPduType  pduPres;
+   uint8_t    pdschSlot;
    RarInfo rarInfo;
    BwpCfg  bwp;
    PdcchCfg rarPdcchCfg;
@@ -824,15 +862,23 @@ typedef struct lcSchInfo
    uint32_t  schBytes; /* Number of scheduled bytes */
 }LcSchInfo;
 
-typedef struct dlMsgAlloc
+typedef struct dlMsgSchedInfo
 {
-   uint16_t   crnti;
    uint8_t    numLc;
    LcSchInfo  lcSchInfo[MAX_NUM_LC]; /* Scheduled LC info */
    BwpCfg     bwp;
    PdcchCfg   dlMsgPdcchCfg;
    PdschCfg   dlMsgPdschCfg;
+   DlPduType  pduPres;
+   uint8_t    pdschSlot;
    DlMsgInfo  dlMsgInfo;
+}DlMsgSchInfo;
+
+typedef struct dlMsgAlloc
+{
+   uint16_t     crnti;
+   uint8_t      numSchedInfo;
+   DlMsgSchInfo dlMsgSchedInfo[2];
 }DlMsgAlloc;
 
 typedef struct schSlotValue
@@ -907,17 +953,13 @@ typedef struct dlSchedInfo
    DlBrdcstAlloc brdcstAlloc;
 
    /* Allocation for RAR message */
-   //uint8_t isRarPres;
-   RarAlloc *rarAlloc;
-
-   /* Allocation from MSG4 */
-   //Msg4Alloc *msg4Alloc;
+   RarAlloc *rarAlloc[MAX_NUM_UE];
 
    /* UL grant in response to BSR */
    DciInfo    *ulGrant;
 
    /* Allocation from dedicated DL msg */
-   DlMsgAlloc *dlMsgAlloc;
+   DlMsgAlloc *dlMsgAlloc[MAX_NUM_UE];
 
 }DlSchedInfo;
 
@@ -1170,6 +1212,7 @@ typedef struct schInitalDlBwp
    SchPdcchConfig   pdcchCfg;
    bool             pdschCfgPres;
    SchPdschConfig   pdschCfg;
+   bool             k0K1TblPrsnt;
    SchK0K1TimingInfoTbl k0K1InfoTbl;
 }SchInitalDlBwp;
 
@@ -1382,6 +1425,7 @@ typedef struct schInitialUlBwp
    SchPucchCfg   pucchCfg;
    bool          puschCfgPres;
    SchPuschCfg   puschCfg;
+   bool          k2TblPrsnt;
    SchK2TimingInfoTbl k2InfoTbl;
 }SchInitialUlBwp;
 
@@ -1457,12 +1501,6 @@ typedef struct schDrbQos
    uint32_t                ulPduSessAggMaxBitRate;   /* UL PDU Session Aggregate max bit rate */
 }SchDrbQosInfo;
 
-typedef struct schSnssai
-{
-   uint8_t   sst;
-   uint8_t   sd[SD_SIZE];
-}SchSnssai;
-
 /* Special cell configuration */
 typedef struct schSpCellCfg
 {
@@ -1492,7 +1530,7 @@ typedef struct schLcCfg
    ConfigType     configType;
    uint8_t        lcId;
    SchDrbQosInfo  *drbQos;
-   SchSnssai      *snssai;
+   Snssai         *snssai;
    SchDlLcCfg     dlLcCfg;
    SchUlLcCfg     ulLcCfg;
 }SchLcCfg;
@@ -1530,7 +1568,7 @@ typedef struct schUeCfg
 
 typedef struct schUeCfgRsp
 {
-   uint16_t   ueIdx;
+   uint16_t   ueId;
    uint16_t   cellId;
    uint16_t   crnti;
    SchMacRsp  rsp;
@@ -1587,8 +1625,39 @@ typedef struct srUciIndInfo
    uint8_t     srPayload[MAX_SR_BITS_IN_BYTES];
 }SrUciIndInfo;
 
-/* function pointers */
+typedef struct schRrmPolicyRatio
+{
+   uint8_t policyMaxRatio;
+   uint8_t policyMinRatio;
+   uint8_t policyDedicatedRatio;
+}SchRrmPolicyRatio;
 
+typedef struct schRrmPolicyOfSlice
+{
+   Snssai  snssai;
+   SchRrmPolicyRatio *rrmPolicyRatioInfo;
+}SchRrmPolicyOfSlice;
+
+typedef struct schSliceCfgReq
+{
+   uint8_t  numOfConfiguredSlice;
+   SchRrmPolicyOfSlice **listOfConfirguration;
+}SchSliceCfgReq;
+
+typedef struct sliceRsp
+{
+   Snssai     snssai;
+   SchMacRsp  rsp;
+   RspCause   cause;
+}SliceRsp;
+
+typedef struct schSliceRsp
+{
+   uint8_t    numSliceCfgRsp;
+   SliceRsp   **listOfSliceCfgRsp;
+}SchSliceCfgRsp;
+
+/* function pointers */
 typedef uint8_t (*SchCellCfgCfmFunc)    ARGS((
 	 Pst            *pst,           /* Post Structure */                         
 	 SchCellCfgCfm  *schCellCfgCfm  /* Cell Cfg Cfm */
@@ -1666,6 +1735,23 @@ typedef uint8_t (*SchCellDeleteRspFunc) ARGS((
    Pst          *pst,           /* Post structure */
    SchCellDeleteRsp *schCellDeleteRsp));       /* Scheduler UE delete response */
 
+typedef uint8_t (*MacSchSliceCfgReqFunc) ARGS((
+   Pst          *pst,           /* Post structure */
+   SchSliceCfgReq *schSliceCfgReq));  /* Scheduler Slice Cfg Req */
+
+typedef uint8_t (*SchSliceCfgRspFunc)    ARGS((
+	 Pst            *pst,            /* Post Structure */                         
+	 SchSliceCfgRsp  *schSliceCfgRsp /* Cell Cfg Cfm */
+	 ));
+
+typedef uint8_t (*MacSchSliceReCfgReqFunc) ARGS((
+   Pst          *pst,           /* Post structure */
+   SchSliceCfgReq *schSliceReCfgReq));  /* Scheduler Slice ReCfg Req */
+
+typedef uint8_t (*SchSliceReCfgRspFunc)    ARGS((
+	 Pst            *pst,            /* Post Structure */                         
+	 SchSliceCfgRsp  *schSliceReCfgRsp /* Cell ReCfg Cfm */
+	 ));
 /* function declarations */
 uint8_t packMacSchSlotInd(Pst *pst, SlotTimingInfo *slotInd);
 uint8_t packSchMacDlAlloc(Pst *pst, DlSchedInfo  *dlSchedInfo);
@@ -1707,7 +1793,14 @@ uint8_t packMacSchCellDeleteReq(Pst *pst,  SchCellDelete *schCellDelete);
 uint8_t MacSchCellDeleteReq(Pst *pst, SchCellDelete  *schCellDelete);
 uint8_t packSchCellDeleteRsp(Pst *pst, SchCellDeleteRsp  *schCellDeleteRsp);
 uint8_t MacProcSchCellDeleteRsp(Pst *pst, SchCellDeleteRsp *schCellDeleteRsp);
-
+uint8_t packMacSchSliceCfgReq(Pst *pst, SchSliceCfgReq *cfgReq);
+uint8_t MacSchSliceCfgReq(Pst *pst, SchSliceCfgReq *schSliceCfgReq);
+uint8_t packSchSliceCfgRsp(Pst *pst, SchSliceCfgRsp *cfgRsp);
+uint8_t MacProcSchSliceCfgRsp(Pst *pst, SchSliceCfgRsp *cfgRsp);
+uint8_t packMacSchSliceReCfgReq(Pst *pst, SchSliceCfgReq *cfgReq);
+uint8_t MacSchSliceReCfgReq(Pst *pst, SchSliceCfgReq *schSliceCfgReq);
+uint8_t packSchSliceReCfgRsp(Pst *pst, SchSliceCfgRsp *cfgRsp);
+uint8_t MacProcSchSliceReCfgRsp(Pst *pst, SchSliceCfgRsp *sliceReCfgrsp);
 /**********************************************************************
   End of file
  **********************************************************************/

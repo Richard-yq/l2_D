@@ -79,7 +79,6 @@ uint8_t cmPkSctpNtfy(Pst *pst, CmInetSctpNotification *ntfy)
  *         RFAILED - failure
  *
  * ****************************************************************/
-
 uint8_t cmUnpkSctpNtfy(SctpNtfy func, Pst *pst, Buffer *mBuf)
 {
    CmInetSctpNotification ntfy;

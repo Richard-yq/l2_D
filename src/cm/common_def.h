@@ -52,19 +52,24 @@
 #include "cm_lte.x"
 #include "cm_lib.x"
 #include "du_log.h"
+#include "../nfapi/nfapi_nr_interface_scf.h"
 
 #define RADIO_FRAME_DURATION 10 /* Time duration of a radio frame in ms */
 /* MAX values */
 #define MAX_NUM_CELL 1
-#define MAX_NUM_UE   2
+#define MAX_NUM_MU   4
+#define MAX_NUM_UE   3
 #define MAX_NUM_UE_PER_TTI 1
-#define MAX_NUM_LC   11
+#define MAX_NUM_LC   MAX_DRB_LCID + 1   /*Spec 38.331: Sec 6.4: maxLC-ID Keyword*/
 #define MAX_NUM_SRB  3    /* Max. no of Srbs */
 #define MAX_NUM_DRB  29   /* spec 38.331, maxDRB */
 
 /* 5G ORAN phy delay */
 #define PHY_DELTA_DL 1
 #define PHY_DELTA_UL 0
+
+/* ORAN_OAI VNF advance schedule */
+#define  ORAN_OAI_VNF_ADVANCE_SCH 2
 
  /* SELECTORS */ 
 #define ODU_SELECTOR_LC 0
@@ -89,14 +94,22 @@
 #define PUCCH_FORMAT_3 3 
 #define PUCCH_FORMAT_4 4
 
+#define DEFAULT_MCS 4
+
 #define BANDWIDTH_20MHZ 20
 #define BANDWIDTH_100MHZ 100
 
 /* PRB allocation as per 38.101, Section 5.3.2 */
 #define TOTAL_PRB_20MHZ_MU0 106
 #define TOTAL_PRB_100MHZ_MU1 273
+#ifdef NR_TDD
+#define MAX_NUM_RB TOTAL_PRB_100MHZ_MU1  /* value for numerology 1, 100 MHz */
+#else
+#define MAX_NUM_RB TOTAL_PRB_20MHZ_MU0 /* value for numerology 0, 20 MHz */
+#endif
 
-#define ODU_THROUGHPUT_PRINT_TIME_INTERVAL  5 /* in milliseconds */
+#define ODU_UE_THROUGHPUT_PRINT_TIME_INTERVAL      5     /* in milliseconds */
+#define ODU_SNSSAI_THROUGHPUT_PRINT_TIME_INTERVAL  60000 /* in milliseconds */
 
 /* Defining macros for common utility functions */
 #define ODU_GET_MSG_BUF SGetMsg
@@ -124,21 +137,25 @@
 #define ODU_SET_THREAD_AFFINITY SSetAffinity
 #define ODU_CREATE_TASK SCreateSTsk
 
+#define MAX_SYMB_PER_SLOT 14 
+
+/* Slice */
+#define SD_SIZE 3
+
 #ifdef NR_TDD
 /* Maximum slots for max periodicity and highest numerology is 320.
  * However, aligning to fapi_interface.h, setting this macro to 160 */
 #define MAX_TDD_PERIODICITY_SLOTS 160 
-#define MAX_SYMB_PER_SLOT 14 
 #endif
 
-#define GET_UE_IDX( _crnti,_ueIdx)         \
+#define GET_UE_ID( _crnti,_ueId)           \
 {                                          \
-   _ueIdx = _crnti - ODU_START_CRNTI + 1;  \
+   _ueId = _crnti - ODU_START_CRNTI + 1;  \
 }
 
-#define GET_CRNTI( _crnti,_ueIdx)          \
+#define GET_CRNTI( _crnti, _ueId)          \
 {                                          \
-   _crnti = _ueIdx + ODU_START_CRNTI - 1;  \
+   _crnti = _ueId + ODU_START_CRNTI - 1;  \
 }
 
 /* Calculates cellIdx from cellId */
@@ -175,6 +192,17 @@
 #define GET_RIGHT_MOST_SET_BIT( _in,_bitPos)        \
 {                                                \
    _bitPos = __builtin_ctz(_in);                 \
+}
+
+/* MACRO for checking CRNTI range*/
+#define CHECK_CRNTI(_crnti, _isCrntiValid)                                         \
+{                                                                   \
+  _isCrntiValid = ((_crnti >= ODU_START_CRNTI && _crnti <= ODU_END_CRNTI ) ? 1 : 0); \
+}
+
+#define CHECK_LCID(_lcId, _isLcidValid)      \
+{\
+   _isLcidValid = ((_lcId >= SRB0_LCID && _lcId <= MAX_DRB_LCID) ? 1 : 0);\
 }
 
 typedef enum
@@ -226,12 +254,71 @@ typedef enum
 
 typedef enum
 {
+   SCS_5MS,
+   SCS_10MS,
+   SCS_20MS,
+   SCS_40MS,
+   SCS_80MS,
+   SCS_160MS
+}ScsPeriodicity;
+
+typedef enum
+{
    CELL_UP,
    CELL_DOWN
 }OduCellStatus;
 
+
+typedef enum
+{
+   DIR_NONE,
+   DIR_UL,
+   DIR_DL,
+   DIR_BOTH
+}Direction;
+
+//-------------------------------------------
+// MWNL TEST
+
+typedef uint16_t module_id_t;
+typedef uint32_t frame_t;
+typedef uint32_t slot_t;
+
+typedef struct {
+  /// Module ID
+  module_id_t module_id;
+  /// CC ID
+  int CC_id;
+  /// frame
+  frame_t frame;
+  /// slot
+  slot_t slot;
+
+  uint16_t cellId;
+
+  /// crc indication list
+  nfapi_nr_crc_indication_t crc_ind;
+
+  /// RACH indication list
+  nfapi_nr_rach_indication_t rach_ind;
+
+  /// SRS indication list
+  nfapi_nr_srs_indication_t srs_ind;
+
+  /// RX indication
+  nfapi_nr_rx_data_indication_t rx_ind;
+
+  /// UCI indication
+  nfapi_nr_uci_indication_t uci_ind;
+
+} NR_UL_IND_t;
+// --------------------------------------------
+
+NR_UL_IND_t UL_INFO;
+
 typedef struct slotTimingInfo
 {
+   uint16_t module_id;
    uint16_t cellId;
    uint16_t sfn;
    uint16_t slot;
@@ -242,6 +329,12 @@ typedef struct PlmnIdentity
    uint8_t mcc[3];
    uint8_t mnc[3];
 }Plmn;
+
+typedef struct snssai
+{
+   uint8_t   sst;
+   uint8_t   sd[SD_SIZE];
+}Snssai;
 
 typedef struct oduCellId
 {
@@ -261,9 +354,10 @@ OduCellStatus gCellStatus;
 uint64_t gSlotCount;
 uint64_t gDlDataRcvdCnt;   /* Number of DL data received at EGTP */
 
-void freqDomRscAllocType0(uint16_t startPrb, uint16_t prbSize, uint8_t *freqDomain);
+void fillCoresetFeqDomAllocMap(uint16_t startPrb, uint16_t prbSize, uint8_t *freqDomain);
 void oduCpyFixBufToMsg(uint8_t *fixBuf, Buffer *mBuf, uint16_t len);
 uint8_t buildPlmnId(Plmn plmn, uint8_t *buf);
+uint16_t convertScsEnumValToScsVal(uint8_t scsEnumValue);
 
 uint8_t SGetSBufNewForDebug(char *file, char *func, char *line, Region region, Pool pool, Data **ptr, Size size);
 uint8_t SPutSBufNewForDebug(char *file, char *func, char *line, Region region, Pool pool, Data *ptr, Size size);

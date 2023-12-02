@@ -24,7 +24,7 @@
 #include "du_log.h"
 
 #ifdef O1_ENABLE
-#include "ConfigInterface.h"
+#include "CmInterface.h"
 #endif
 
 #define CU_ID 1
@@ -215,9 +215,9 @@ void readCuCfg()
    cuCfgParams.egtpParams.destIp.ipV4Pres = TRUE;
    cuCfgParams.egtpParams.destIp.ipV4Addr = ipv4_du;
    cuCfgParams.egtpParams.destPort = DU_EGTP_PORT;
-   cuCfgParams.egtpParams.minTunnelId = 0;
+   cuCfgParams.egtpParams.minTunnelId = MIN_TEID;
    cuCfgParams.egtpParams.currTunnelId = cuCfgParams.egtpParams.minTunnelId;
-   cuCfgParams.egtpParams.maxTunnelId = 10;
+   cuCfgParams.egtpParams.maxTunnelId = MAX_TEID;
 
 } /* End of readCuCfg */
 
@@ -239,14 +239,74 @@ void readCuCfg()
 void *cuConsoleHandler(void *args)
 {
    char ch;
+   uint8_t teId = 0;
+   uint8_t ret = ROK;
+   uint8_t cnt = 0;
+
+   /* This variable is taken for sending specific number of downlink data packet. 
+    * Presently the code is supporting total 4500 data packets trasfer for 3 UEs only with sleep(1).
+    * If you wants to pump data for 3 UE change the following macro values
+    * NUM_TUNNEL_TO_PUMP_DATA = 9, NUM_DL_PACKETS = 1.
+    * totalDataPacket = totalNumOfTestFlow * NUM_TUNNEL_TO_PUMP_DATA * NUM_DL_PACKETS 
+    * totalDataPacket = [500*9*1] */
+   int32_t totalNumOfTestFlow = 500; 
+
    while(true) 
    {
       /* Send DL user data to CU when user enters 'd' on console */
       if((ch = getchar()) == 'd')
       {
+
+      /* Change #if 0 to #if 1 to take input from user */
+#if 0
+         DU_LOG("\n EGTP --> : Enter TEID id(1..10) where DL Data to be sent\n");
+         scanf("%d",&teId);
+         
+         if(teId > MAX_TEID || teId < MIN_TEID)
+         {
+            DU_LOG("\nERROR  -->  EGTP : TEID(%x) OUT Of Range",teId);
+            printf("\n");
+            continue;
+         }
          /* Start Pumping data from CU to DU */
-         DU_LOG("\nDEBUG  -->  EGTP: Sending DL User Data");
-         cuEgtpDatReq();      
+         DU_LOG("\nDEBUG  -->  EGTP: Sending DL User Data(teId:%d)\n",teId);
+
+         cnt =0;
+         while(cnt < NUM_DL_PACKETS)
+         {
+            ret =  cuEgtpDatReq(teId);
+            if(ret != ROK)
+            {
+               DU_LOG("\nERROR --> EGTP: Issue with teid=%d\n",teId);
+               break;
+            }
+            cnt++;
+         }
+#else
+         while(totalNumOfTestFlow)
+         {
+            for(teId = 1; teId <= NUM_TUNNEL_TO_PUMP_DATA; teId++)
+            {
+               DU_LOG("\nDEBUG  -->  EGTP: Sending DL User Data(teId:%d)\n",teId);
+               cnt =0;
+               while(cnt < NUM_DL_PACKETS)
+               {
+                  ret =  cuEgtpDatReq(teId);      
+                  if(ret != ROK)
+                  {
+                     DU_LOG("\nERROR --> EGTP: Issue with teid=%d\n",teId);
+                     break;
+                  }
+                  /* TODO : sleep(1) will be removed later once we will be able to
+                   * support the continuous data pack transfer */
+                  sleep(1);
+                  cnt++;
+               }
+            }
+            totalNumOfTestFlow--;
+         }
+#endif
+         continue;
       } 
    }
 }

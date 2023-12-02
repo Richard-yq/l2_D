@@ -19,11 +19,14 @@
 /* header include files (.h) */
 #include "common_def.h"
 #include "lrg.h"
+//#define INTEL_FAPI
 #ifdef INTEL_FAPI
 #include "fapi.h"
 #include "fapi_vendor_extension.h"
 #endif
 
+#include "../nfapi/nfapi_nr_interface_scf.h"
+#include "../nfapi/nfapi_vnf_interface.h"
 /* header/extern include files (.x) */
 #include "lrg.x"
 #include "du_app_mac_inf.h"
@@ -36,7 +39,6 @@
 #include "mac_utils.h"
 #include "lwr_mac_utils.h"
 
-#ifdef INTEL_FAPI
 /* Function pointer for slot indication from lower mac to mac */
 SlotIndFunc sendSlotIndOpts[] =
 {
@@ -101,6 +103,368 @@ UciIndFunc sendUciIndOpts[] =
  *         RFAILED - failure
  *
  * ****************************************************************/
+uint8_t ORAN_OAI_procSlotInd(NR_UL_IND_t *UL_INFO)
+{
+   printf("[MWNL] %s\n", __FUNCTION__);
+   /* fill Pst structure to send to lwr_mac to MAC */
+   Pst pst;
+   uint16_t ret = 0;
+   SlotTimingInfo *slotInd = {0};
+
+   if(lwrMacCb.phyState == PHY_STATE_CONFIGURED)
+   {
+      DU_LOG("\nINFO  -->  LWR_MAC: PHY has moved to running state");
+      lwrMacCb.phyState = PHY_STATE_RUNNING;
+      lwrMacCb.cellCb[0].state = PHY_STATE_RUNNING;
+   }
+
+   MAC_ALLOC_SHRABL_BUF(UL_INFO, sizeof(NR_UL_IND_t));
+
+   if(UL_INFO)
+   {
+      UL_INFO->cellId = lwrMacCb.cellCb[0].cellId; 
+      FILL_PST_LWR_MAC_TO_MAC(pst, EVENT_SLOT_IND_TO_MAC);
+      pst.selector = ODU_SELECTOR_LWLC;
+      ret = (*sendSlotIndOpts[pst.selector])(&pst, UL_INFO);
+   }
+   else
+   {
+      DU_LOG("\nERROR  -->  LWR_MAC: Memory allocation failed in procSlotInd");
+      ret = RFAILED;
+   }
+   return ret;
+}
+
+/*******************************************************************
+ *
+ * @brief Handles Rx Data indication from PHY and sends to MAC
+ *
+ * @details
+ *
+ *    Function : procRxDataInd
+ *
+ *    Functionality:
+ *      Handles Rx Data indication from PHY and sends to MAC
+ *
+ * @params[in] fapi_rx_data_indication_t message pointer
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/
+
+uint8_t ORAN_OAI_procRxDataInd(nfapi_nr_rx_data_indication_t  *fapiRxDataInd)
+{
+   Pst           pst;
+   uint8_t       pduIdx =0;
+   RxDataInd     *rxDataInd = NULLP;
+   RxDataIndPdu  *pdu = NULLP;   
+
+   MAC_ALLOC_SHRABL_BUF(rxDataInd, sizeof(RxDataInd));
+   if(!rxDataInd)
+   {
+      DU_LOG("\nERROR  -->  LWR_MAC : Memory Allocation failed in procRxDataInd");
+      return RFAILED;
+   }
+   if(!fapiRxDataInd->number_of_pdus)
+   {
+      DU_LOG("\nDEBUG  -->  LWR_MAC : No PDU in RX_Data.indication at [%d, %d]", fapiRxDataInd->sfn, fapiRxDataInd->slot);
+      return ROK;
+   }
+
+   rxDataInd->cellId = lwrMacCb.cellCb[0].cellId;
+   rxDataInd->timingInfo.sfn = fapiRxDataInd->sfn; 
+   rxDataInd->timingInfo.slot = fapiRxDataInd->slot;
+   rxDataInd->numPdus = fapiRxDataInd->number_of_pdus;
+
+   for(pduIdx = 0; pduIdx < rxDataInd->numPdus; pduIdx++)
+   {
+      pdu = &rxDataInd->pdus[pduIdx];
+      pdu->handle = fapiRxDataInd->pdu_list[pduIdx].handle;
+      pdu->rnti = fapiRxDataInd->pdu_list[pduIdx].rnti;
+      pdu->harqId = fapiRxDataInd->pdu_list[pduIdx].harq_id;
+      pdu->pduLength = fapiRxDataInd->pdu_list[pduIdx].pdu_length;
+      pdu->ul_cqi = fapiRxDataInd->pdu_list[pduIdx].ul_cqi;
+      pdu->timingAdvance = fapiRxDataInd->pdu_list[pduIdx].timing_advance;
+      pdu->rssi = fapiRxDataInd->pdu_list[pduIdx].rssi;
+
+      MAC_ALLOC_SHRABL_BUF(pdu->pduData, pdu->pduLength);
+      memcpy(pdu->pduData, fapiRxDataInd->pdu_list[pduIdx].pdu, pdu->pduLength);
+#ifdef INTEL_WLS_MEM      
+      /* Free WLS memory allocated for Rx PDU */
+      WLS_MEM_FREE(fapiRxDataInd->pdus[pduIdx].pduData, LWR_MAC_WLS_BUF_SIZE);
+#endif
+   }
+
+   /* Fill post and sent to MAC */
+   FILL_PST_LWR_MAC_TO_MAC(pst, EVENT_RX_DATA_IND_TO_MAC);
+   return (*sendRxDataIndOpts[pst.selector])(&pst, rxDataInd);
+}
+
+/*******************************************************************
+ *
+ * @brief Handles CRC indication from PHY and sends to MAC
+ *
+ * @details
+ *
+ *    Function : procCrcInd
+ *
+ *    Functionality:
+ *      Handles CRC indication from PHY and sends to MAC
+ *
+ * @params[in] fapi_crc_ind_t message pointer
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/
+
+uint8_t ORAN_OAI_procCrcInd(nfapi_nr_crc_indication_t  *fapiCrcInd)
+{
+   Pst          pst;
+   uint8_t      crcInfoIdx;
+   uint8_t      crcStatusIdx;
+   CrcInfo      *crcIndInfo = NULLP;
+   CrcInd       *crcInd = NULLP;
+
+   MAC_ALLOC_SHRABL_BUF(crcInd, sizeof(CrcInd));
+   if(!crcInd)
+   {
+      DU_LOG("\nERROR  -->  LWR_MAC : Memory Allocation failed in procCrcInd");
+      return RFAILED;
+   }
+   if(!fapiCrcInd->number_crcs)
+   {
+      DU_LOG("\nDEBUG  --> LWR_MAC : No CRC PDUs in CRC.indication at [%d, %d]", fapiCrcInd->sfn, fapiCrcInd->slot);
+      return ROK;
+   }
+
+   crcInd->cellId = lwrMacCb.cellCb[0].cellId;
+   crcInd->timingInfo.sfn = fapiCrcInd->sfn;
+   crcInd->timingInfo.slot = fapiCrcInd->slot;
+   crcInd->numCrc = fapiCrcInd->number_crcs;
+
+   for(crcInfoIdx = 0; crcInfoIdx < crcInd->numCrc; crcInfoIdx++)
+   {
+      crcIndInfo = &crcInd->crcInfo[crcInfoIdx];
+      crcIndInfo->handle      = fapiCrcInd->crc_list[crcInfoIdx].handle;
+      crcIndInfo->rnti        = fapiCrcInd->crc_list[crcInfoIdx].rnti;
+      crcIndInfo->harqId      = fapiCrcInd->crc_list[crcInfoIdx].harq_id;
+      crcIndInfo->tbCrcStatus = fapiCrcInd->crc_list[crcInfoIdx].cb_crc_status;
+      crcIndInfo->numCb       = fapiCrcInd->crc_list[crcInfoIdx].num_cb;
+      for(crcStatusIdx = 0; crcStatusIdx < crcIndInfo->numCb; crcStatusIdx++)
+      {
+	 crcIndInfo->cbCrcStatus[crcStatusIdx] = \
+	    fapiCrcInd->crc_list[crcInfoIdx].cb_crc_status[crcStatusIdx];
+      }
+      crcIndInfo->ul_cqi  = fapiCrcInd->crc_list[crcInfoIdx].ul_cqi;
+      crcIndInfo->timingAdvance = fapiCrcInd->crc_list[crcInfoIdx].timing_advance;
+      crcIndInfo->rssi = fapiCrcInd->crc_list[crcInfoIdx].rssi;
+   }
+
+   /* Fill post and sent to MAC */
+   FILL_PST_LWR_MAC_TO_MAC(pst, EVENT_CRC_IND_TO_MAC);
+   return (*sendCrcIndOpts[pst.selector])(&pst, crcInd);
+} /* handleCrcInd */
+/*******************************************************************
+ *
+ * @brief Fills Uci Ind Pdu Info carried on Pucch Format 0/Format 1
+ *
+ * @details
+ *
+ *    Function : fillUciIndPucchF0F1
+ *
+ *    Functionality:
+ *       Fills Uci Ind Pdu Info carried on Pucch Format 0/Format 1
+ *
+ *@params[in] UciPucchF0F1 *
+ *            fapi_uci_o_pucch_f0f1_t *
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/
+
+uint8_t fillUciIndPucchF0F1(UciPucchF0F1 *pduInfo, nfapi_nr_uci_pucch_pdu_format_0_1_t *fapiPduInfo)
+{
+
+   uint8_t harqIdx;
+   uint8_t ret = ROK;
+   
+   pduInfo->handle        = fapiPduInfo->handle;
+   pduInfo->pduBitmap     = fapiPduInfo->pduBitmap;
+   pduInfo->pucchFormat   = fapiPduInfo->pucch_format;
+   pduInfo->ul_cqi        = fapiPduInfo->ul_cqi;
+   pduInfo->crnti         = fapiPduInfo->rnti;
+   pduInfo->timingAdvance = fapiPduInfo->timing_advance;
+   pduInfo->rssi          = fapiPduInfo->rssi;   
+   if(fapiPduInfo->sr->sr_indication)
+   {
+      pduInfo->srInfo.srIndPres = fapiPduInfo->sr->sr_indication;
+      pduInfo->srInfo.srConfdcLevel = fapiPduInfo->sr->sr_confidence_level;
+   }
+   if(fapiPduInfo->harq->num_harq)
+   {
+      pduInfo->harqInfo.numHarq = fapiPduInfo->harq->num_harq;
+      pduInfo->harqInfo.harqConfdcLevel = fapiPduInfo->harq->harq_confidence_level;
+      for(harqIdx = 0; harqIdx < pduInfo->harqInfo.numHarq; harqIdx++)
+      {
+         pduInfo->harqInfo.harqValue[harqIdx] = fapiPduInfo->harq->harq_list[harqIdx].harq_value;
+      }
+   }
+   return ret;
+}
+
+/*******************************************************************
+ *
+ * @brief Handles Uci indication from PHY and sends to MAC
+ *
+ * @details
+ *
+ *    Function : procUciInd
+ *
+ *    Functionality:
+ *      Handles Uci indication from PHY and sends to MAC
+ *
+ * @params[in] fapi_uci_indication_t message pointer
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/
+
+uint8_t ORAN_OAI_procUciInd(nfapi_nr_uci_indication_t  *fapiUciInd)
+{
+   uint8_t pduIdx;
+   uint8_t ret = ROK;
+   Pst     pst;
+   UciInd  *macUciInd = NULLP;
+
+   MAC_ALLOC_SHRABL_BUF(macUciInd, sizeof(UciInd));
+   if(!macUciInd)
+   {
+      DU_LOG("\nERROR  -->  LWR_MAC: Memory Allocation failed in procUciInd");
+      return RFAILED;
+   }
+
+   DU_LOG("\nDEBUG  -->  LWR_MAC: Processing UCI Indication");
+   memset(macUciInd, 0, sizeof(UciInd));
+   macUciInd->cellId = lwrMacCb.cellCb[0].cellId;
+   macUciInd->slotInd.sfn = fapiUciInd->sfn; 
+   macUciInd->slotInd.slot = fapiUciInd->slot;
+   macUciInd->numUcis = fapiUciInd->num_ucis;
+
+   for(pduIdx = 0; pduIdx < macUciInd->numUcis; pduIdx++)
+   {
+      macUciInd->pdus[pduIdx].pduType = fapiUciInd->uci_list[pduIdx].pdu_type;
+      switch(macUciInd->pdus[pduIdx].pduType)
+      {
+         case UCI_IND_PUSCH:
+         break;
+         case UCI_IND_PUCCH_F0F1:
+         {
+            UciPucchF0F1 *pduInfo = NULLP;
+            macUciInd->pdus[pduIdx].pduSize = fapiUciInd->uci_list[pduIdx].pdu_size;
+            pduInfo = &macUciInd->pdus[pduIdx].uci.uciPucchF0F1;
+            ret = fillUciIndPucchF0F1(pduInfo, &fapiUciInd->uci_list[pduIdx].pucch_pdu_format_0_1);
+         }
+         break;
+         case UCI_IND_PUCCH_F2F3F4:
+            break;
+         default:
+            DU_LOG("\nERROR  -->  LWR_MAC: Invalid Pdu Type %d at procmacUciInd()", macUciInd->pdus[pduIdx].pduType);
+	    ret = RFAILED;
+            break;
+      }
+   }
+   if(!ret)
+   {
+      FILL_PST_LWR_MAC_TO_MAC(pst, EVENT_UCI_IND_TO_MAC);
+      ret = (*sendUciIndOpts[pst.selector])(&pst, macUciInd);
+   }
+   else
+   {
+      DU_LOG("\nERROR  -->  LWR_MAC: Failed sending UCI Ind to MAC");
+   }
+   return ret;
+}
+
+/*******************************************************************
+ *
+ * @brief Processes Rach Indication from PHY and sends to MAC
+ *
+ * @details
+ *
+ *    Function : procRachInd
+ *
+ *    Functionality:
+ *         Processes Rach Indication from PHY and sends to MAC
+ *
+ * @params[in] fapi_rach_indication_t pointer
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/
+uint8_t ORAN_OAI_procRachInd(nfapi_nr_rach_indication_t  *fapiRachInd)
+{
+   Pst          pst;
+   uint8_t      pduIdx;
+   uint8_t      prmbleIdx;
+   RachPduInfo  *rachPdu = NULLP;
+   RachInd      *rachInd = NULLP;
+
+   MAC_ALLOC_SHRABL_BUF(rachInd, sizeof(RachInd));
+   if(!rachInd)
+   {
+      DU_LOG("\nERROR  -->  LWR_MAC : Memory Allocation failed in procRachInd");
+      return RFAILED;
+   }
+   if(!fapiRachInd->number_of_pdus)
+   {
+      DU_LOG("\nDEBUG  -->  LWR_MAC : No PDU in RACH.indication at [%d, %d]", fapiRachInd->sfn, fapiRachInd->slot);
+      return ROK;
+   }
+
+   rachInd->cellId = lwrMacCb.cellCb[0].cellId;
+   rachInd->timingInfo.sfn = fapiRachInd->sfn;
+   rachInd->timingInfo.slot = fapiRachInd->slot;
+   rachInd->numPdu = fapiRachInd->number_of_pdus;
+   for(pduIdx=0; pduIdx < rachInd->numPdu; pduIdx++)
+   {
+      rachPdu = &rachInd->rachPdu[pduIdx];
+      rachPdu->pci = fapiRachInd->pdu_list[pduIdx].phy_cell_id;
+      rachPdu->symbolIdx = fapiRachInd->pdu_list[pduIdx].symbol_index;
+      rachPdu->slotIdx = fapiRachInd->pdu_list[pduIdx].slot_index;
+      rachPdu->freqIdx = fapiRachInd->pdu_list[pduIdx].freq_index;
+      rachPdu->numPream = fapiRachInd->pdu_list[pduIdx].num_preamble; 
+      for(prmbleIdx=0; prmbleIdx<rachPdu->numPream; prmbleIdx++)
+      {
+	 rachPdu->preamInfo[prmbleIdx].preamIdx = \
+	    fapiRachInd->pdu_list[pduIdx].preamble_list[prmbleIdx].preamble_index;
+	 rachPdu->preamInfo[prmbleIdx].timingAdv = \
+	    fapiRachInd->pdu_list[pduIdx].preamble_list[prmbleIdx].timing_advance;
+      }
+   }
+
+   /* Fill post and sent to MAC */
+   FILL_PST_LWR_MAC_TO_MAC(pst, EVENT_RACH_IND_TO_MAC);
+   return (*sendRachIndOpts[pst.selector])(&pst, rachInd);
+}/* handleRachInd */
+
+
+/*******************************************************************
+ *
+ * @brief Processes Slot Indication from PHY and sends to MAC
+ *
+ * @details
+ *
+ *    Function : procSlotInd
+ *
+ *    Functionality:
+ *     Processes Slot Indication from PHY and sends to MAC
+ *
+ * @params[in] fapi_slot_ind_t pointer
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/
+#ifdef INTEL_FAPI
 uint8_t procSlotInd(fapi_slot_ind_t *fapiSlotInd)
 {
    /* fill Pst structure to send to lwr_mac to MAC */
@@ -126,7 +490,7 @@ uint8_t procSlotInd(fapi_slot_ind_t *fapiSlotInd)
    }
    return ret;
 }
-
+#endif
 /*******************************************************************
  *
  * @brief Handles stop indication recived from PHY
@@ -142,6 +506,7 @@ uint8_t procSlotInd(fapi_slot_ind_t *fapiSlotInd)
  *         RFAILED - failure
  *
  * ****************************************************************/
+#ifdef INTEL_FAPI
 uint8_t procStopInd()
 {
    Pst pst;
@@ -163,7 +528,7 @@ uint8_t procStopInd()
    pst.selector = ODU_SELECTOR_LWLC; 
    return (*sendStopIndOpts[pst.selector])(&pst, cellId);
 }
-
+#endif
 /*******************************************************************
  *
  * @brief Processes Rach Indication from PHY and sends to MAC
@@ -180,6 +545,7 @@ uint8_t procStopInd()
  *         RFAILED - failure
  *
  * ****************************************************************/
+#ifdef INTEL_FAPI
 uint8_t procRachInd(fapi_rach_indication_t  *fapiRachInd)
 {
    Pst          pst;
@@ -225,7 +591,7 @@ uint8_t procRachInd(fapi_rach_indication_t  *fapiRachInd)
    FILL_PST_LWR_MAC_TO_MAC(pst, EVENT_RACH_IND_TO_MAC);
    return (*sendRachIndOpts[pst.selector])(&pst, rachInd);
 }/* handleRachInd */
-
+#endif
 /*******************************************************************
  *
  * @brief Handles CRC indication from PHY and sends to MAC
@@ -242,7 +608,7 @@ uint8_t procRachInd(fapi_rach_indication_t  *fapiRachInd)
  *         RFAILED - failure
  *
  * ****************************************************************/
-
+#ifdef INTEL_FAPI
 uint8_t procCrcInd(fapi_crc_ind_t  *fapiCrcInd)
 {
    Pst          pst;
@@ -290,7 +656,7 @@ uint8_t procCrcInd(fapi_crc_ind_t  *fapiCrcInd)
    FILL_PST_LWR_MAC_TO_MAC(pst, EVENT_CRC_IND_TO_MAC);
    return (*sendCrcIndOpts[pst.selector])(&pst, crcInd);
 } /* handleCrcInd */
-
+#endif
 /*******************************************************************
  *
  * @brief Handles Rx Data indication from PHY and sends to MAC
@@ -307,7 +673,7 @@ uint8_t procCrcInd(fapi_crc_ind_t  *fapiCrcInd)
  *         RFAILED - failure
  *
  * ****************************************************************/
-
+#ifdef INTEL_FAPI
 uint8_t procRxDataInd(fapi_rx_data_indication_t  *fapiRxDataInd)
 {
    Pst           pst;
@@ -355,53 +721,7 @@ uint8_t procRxDataInd(fapi_rx_data_indication_t  *fapiRxDataInd)
    FILL_PST_LWR_MAC_TO_MAC(pst, EVENT_RX_DATA_IND_TO_MAC);
    return (*sendRxDataIndOpts[pst.selector])(&pst, rxDataInd);
 }
-
-/*******************************************************************
- *
- * @brief Fills Uci Ind Pdu Info carried on Pucch Format 0/Format 1
- *
- * @details
- *
- *    Function : fillUciIndPucchF0F1
- *
- *    Functionality:
- *       Fills Uci Ind Pdu Info carried on Pucch Format 0/Format 1
- *
- *@params[in] UciPucchF0F1 *
- *            fapi_uci_o_pucch_f0f1_t *
- * @return ROK     - success
- *         RFAILED - failure
- *
- * ****************************************************************/
-uint8_t fillUciIndPucchF0F1(UciPucchF0F1 *pduInfo, fapi_uci_o_pucch_f0f1_t *fapiPduInfo)
-{
-
-   uint8_t harqIdx;
-   uint8_t ret = ROK;
-   
-   pduInfo->handle        = fapiPduInfo->handle;
-   pduInfo->pduBitmap     = fapiPduInfo->pduBitmap;
-   pduInfo->pucchFormat   = fapiPduInfo->pucchFormat;
-   pduInfo->ul_cqi        = fapiPduInfo->ul_cqi;
-   pduInfo->crnti         = fapiPduInfo->rnti;
-   pduInfo->timingAdvance = fapiPduInfo->timingAdvance;
-   pduInfo->rssi          = fapiPduInfo->rssi;   
-   if(fapiPduInfo->srInfo.srIndication)
-   {
-      pduInfo->srInfo.srIndPres = fapiPduInfo->srInfo.srIndication;
-      pduInfo->srInfo.srConfdcLevel = fapiPduInfo->srInfo.srConfidenceLevel;
-   }
-   if(fapiPduInfo->harqInfo.numHarq)
-   {
-      pduInfo->harqInfo.numHarq = fapiPduInfo->harqInfo.numHarq;
-      pduInfo->harqInfo.harqConfdcLevel = fapiPduInfo->harqInfo.harqConfidenceLevel;
-      for(harqIdx = 0; harqIdx < pduInfo->harqInfo.numHarq; harqIdx++)
-      {
-         pduInfo->harqInfo.harqValue[harqIdx] = fapiPduInfo->harqInfo.harqValue[harqIdx];
-      }
-   }
-   return ret;
-}
+#endif
 
 /*******************************************************************
  *
@@ -419,6 +739,7 @@ uint8_t fillUciIndPucchF0F1(UciPucchF0F1 *pduInfo, fapi_uci_o_pucch_f0f1_t *fapi
  *         RFAILED - failure
  *
  * ****************************************************************/
+#ifdef INTEL_FAPI
 
 uint8_t procUciInd(fapi_uci_indication_t  *fapiUciInd)
 {
@@ -491,6 +812,7 @@ uint8_t procUciInd(fapi_uci_indication_t  *fapiUciInd)
  *
  *  @return  void
  * ****************************************************************/
+#ifdef INTEL_FAPI
 void callFlowFromPhyToLwrMac(uint16_t msgId)
 {
    char message[100];
@@ -534,6 +856,90 @@ void callFlowFromPhyToLwrMac(uint16_t msgId)
    }
    DU_LOG("\nCall Flow: PHY -> ENTLWRMAC : %s\n",message);
 }
+#endif
+/*******************************************************************
+ *
+ * @brief O-RAN @ OAI Processes P7 message from PHY
+ *
+ * @details
+ *
+ *    Function : procPhyMessages
+ *
+ *    Functionality: Processes message from PHY
+ *
+ * @params[in] 
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/
+/*
+void ORAN_OAI_procP7_message(nfapi_p7_message_header_t header, void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
+{
+   switch (header.message_id)
+   {
+      case NFAPI_NR_PHY_MSG_TYPE_SLOT_INDICATION:
+	 {
+	    if(lwrMacCb.phyState == PHY_STATE_CONFIGURED)
+	    {
+	       DU_LOG("\nINFO  -->  LWR_MAC: PHY has moved to running state");
+	       lwrMacCb.phyState = PHY_STATE_RUNNING;
+	       lwrMacCb.cellCb[0].state = PHY_STATE_RUNNING;
+	    }
+       if (pRecvMsg == NULL || vnf_p7 == NULL)
+       {
+          DU_LOG("%s: ORAN_OAI_procP7_message NULL parameters\n");
+       }
+       else
+	    oran_oai_nfapi_slot_ind_t *slotInd = NULLP;
+	    slotInd  = (oran_oai_nfapi_slot_ind_t *)pRecvMsg;
+	    procSlotInd(slotInd);
+	    break;
+    }
+      case FAPI_ERROR_INDICATION:
+	 {
+	    break;
+	 }
+      case FAPI_RX_DATA_INDICATION:
+	 {
+	    oran_oai_nfapi_rx_data_indication_t *rxDataInd;
+	    rxDataInd = (oran_oai_nfapi_rx_data_indication_t *)pRecvMsg;
+	    procRxDataInd(rxDataInd);
+	    break;
+	 }  
+      case FAPI_CRC_INDICATION:
+	 {
+	    oran_oai_nfapi_crc_ind_t  *crcInd;
+	    crcInd = (oran_oai_nfapi_crc_ind_t *)pRecvMsg;
+	    procCrcInd(crcInd);
+	    break;
+	 }  
+      case FAPI_UCI_INDICATION:
+	 {
+	    oran_oai_nfapi_uci_indication_t *phyUciInd = NULLP;
+	    phyUciInd = (oran_oai_nfapi_uci_indication_t*)pRecvMsg;
+	    procUciInd(phyUciInd);
+	    break;
+	 }
+      case FAPI_SRS_INDICATION:
+	 {
+	    break;
+	 }  
+      case FAPI_RACH_INDICATION:
+	 {
+	    oran_oai_nfapi_rach_indication_t  *rachInd;
+	    rachInd = (oran_oai_nfapi_rach_indication_t *)pRecvMsg;
+	    procRachInd(rachInd);
+	    break;
+	 }
+      case FAPI_STOP_INDICATION:
+	 {
+	    DU_LOG("\nINFO  -->  LWR_MAC: Handling Stop Indication");
+	    procStopInd();
+	    break;       
+	 }      
+   }
+}
+*/
 /*******************************************************************
  *
  * @brief Processes message from PHY
@@ -549,9 +955,10 @@ void callFlowFromPhyToLwrMac(uint16_t msgId)
  *         RFAILED - failure
  *
  * ****************************************************************/
+#ifdef INTEL_FAPI
 void procPhyMessages(uint16_t msgType, uint32_t msgSize, void *msg)
 {
-#ifdef INTEL_FAPI
+
    /* extract the header */
    fapi_msg_t *header = NULLP;
    header = (fapi_msg_t *)msg;

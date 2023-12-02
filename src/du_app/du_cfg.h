@@ -19,6 +19,11 @@
 #ifndef __DU_CONFIG_H_
 #define __DU_CONFIG_H__
 
+#ifdef O1_ENABLE
+#include "CmInterface.h"
+#endif
+
+
 /* MACROS */
 #define DU_INST 0
 #define DU_ID 1
@@ -29,7 +34,7 @@
 #define CU_IP_V4_ADDR "192.168.130.82"
 #define RIC_IP_V4_ADDR "192.168.130.80"
 #define DU_PORT 38472
-#define CU_PORT 38472
+#define CU_PORT 38472 // [OSC_OAI] OAI CU Port 38472
 #define RIC_PORT 36421
 #endif
 
@@ -48,33 +53,49 @@
 #define NR_DL_ARFCN 623400
 #define NR_UL_ARFCN 623400
 #define NR_FREQ_BAND 78
-#else
+#define NR_SCS SCS_30KHZ
+#define NR_BANDWIDTH BANDWIDTH_100MHZ
+#else // FDD
+// #define DUPLEX_MODE DUP_MODE_FDD
+// #define NR_NUMEROLOGY 0
+// #define NR_DL_ARFCN 428000
+// #define NR_UL_ARFCN 390000
+// #define NR_FREQ_BAND 1
+// #define NR_SCS SCS_15KHZ
+// #define NR_BANDWIDTH BANDWIDTH_20MHZ
+
+// For band 66 FDD
 #define DUPLEX_MODE DUP_MODE_FDD
-#define NR_NUMEROLOGY 0
-#define NR_DL_ARFCN 428000
-#define NR_UL_ARFCN 390000
-#define NR_FREQ_BAND 1
-#endif
+#define NR_NUMEROLOGY 1
+#define NR_DL_ARFCN 430000
+#define NR_UL_ARFCN 350000
+#define NR_FREQ_BAND 66
+#define NR_SCS SCS_30KHZ
+#define NR_BANDWIDTH BANDWIDTH_20MHZ
+#endif // FDD
+
+#define NR_DL_FREQ 2169080
+#define NR_UL_FREQ 1769080
+
 
 #define DU_TAC 1
-#define PLMN_MCC0 3
-#define PLMN_MCC1 1
-#define PLMN_MCC2 1
-#define PLMN_MNC0 4
-#define PLMN_MNC1 8
+#define PLMN_MCC0 4
+#define PLMN_MCC1 6
+#define PLMN_MCC2 6
+#define PLMN_MNC0 9
+#define PLMN_MNC1 2
 #define PLMN_MNC2 0
 #define PLMN_SIZE 3
 
 /* Spec 38.104 Table 5.4.2.3-1:Applicable NR-ARFCN per operating band in FR1 */
+// band n1 is the same with n66
 #define SUL_ARFCN 100
 #define SUL_BAND 2
 
-
-
 #define TIME_CFG 0
 #define CARRIER_IDX 1
-#define NUM_TX_ANT 2
-#define NUM_RX_ANT 2
+#define NUM_TX_ANT 1 //2
+#define NUM_RX_ANT 1 //2
 #define FREQ_SHIFT_7P5KHZ FALSE
 #define SSB_PBCH_PWR 0
 #define BCH_PAYLOAD PHY_GEN_TIMING_PBCH_BIT
@@ -99,9 +120,10 @@
 
 /* MACRO defines for PRACH Configuration */
 #define PRACH_CONFIG_IDX   88
-#define PRACH_FREQ_START   0
+#define PRACH_MAX_PRB  24  /* As per (spec 38.211-Table 6.3.3.2-1), max allocated PRBs can go upto 24 */
+#define PRACH_FREQ_START  (MAX_NUM_RB - PRACH_MAX_PRB) /* In order to allocate PRACH from end of the resource grid */
 #define PRACH_SEQ_LEN SHORT_SEQUENCE
-#define PRACH_SUBCARRIER_SPACING 0
+#define PRACH_SUBCARRIER_SPACING NR_SCS
 #define PRACH_RESTRICTED_SET_CFG 0
 #define NUM_PRACH_FDM 1
 #define ROOT_SEQ_IDX 0
@@ -121,7 +143,7 @@
 
 #define RSS_MEASUREMENT_UNIT DONT_REPORT_RSSI
 #define RA_CONT_RES_TIMER 64
-#define RA_RSP_WINDOW 180
+#define RA_RSP_WINDOW 10
 #define PRACH_RESTRICTED_SET 0 /* Unrestricted */
 #define ROOT_SEQ_LEN 139
 
@@ -159,8 +181,8 @@
 
 /* MACRO Define for PUSCH Configuration */
 #define MAX_UL_ALLOC 16
-#define PUSCH_K2_CFG1  3
-#define PUSCH_K2_CFG2  4
+#define PUSCH_K2_CFG1  4
+#define PUSCH_K2_CFG2  5
 #define PUSCH_START_SYMBOL  3
 #define PUSCH_LENGTH_SYMBOL 11
 
@@ -172,7 +194,7 @@
 
 /* Macro define for PUCCH Configuration */
 #define PUCCH_RSRC_COMMON  0
-#define PUCCH_GROUP_HOPPING 2 /* disable */
+#define PUCCH_GROUP_HOPPING 0 /* Neither sequence hopping nor group hopping */
 #define PUCCH_P0_NOMINAL   -74
 
 /* MACRO defines for TDD DL-UL Configuration */
@@ -208,21 +230,14 @@
 /* Events */
 #define EVTCFG 0
 
-#ifdef EGTP_TEST
-/* Macro definitions for EGTP procedures */
-#define EGTP_LCL_TEID 1     /* EGTP local tunnel id */
-#define EGTP_REM_TEID 10    /* EGTP remote tinnel id */
-#endif
-
-
 /* Macro definitions for F1 procedures */
 #define CU_DU_NAME_LEN_MAX 30      /* Max length of CU/DU name string */
 #define MAX_F1_CONNECTIONS 65536    /* Max num of F1 connections */
 #define MAX_PLMN           1        /* Max num of broadcast PLMN ids */
 #define MAXNRARFCN         3279165  /* Maximum values of NRAFCN */
-#define MAXNRCELLBANDS     2       /* Maximum number of frequency bands */
+#define MAX_NRCELL_BANDS   2       /* Maximum number of frequency bands */
 #define MAX_NUM_OF_SLICE_ITEMS 1024     /* Maximum number of signalled slice support items */
-#define MAXBPLMNNRMINUS1   1       /* Maximum number of PLMN Ids broadcast in an NR cell minus 1 */
+#define MAX_BPLMN_NRCELL_MINUS_1   1       /* Maximum number of PLMN Ids broadcast in an NR cell minus 1 */
 #define MAXNUMOFSIBTYPES   32       /* Maximum number of SIB types */
 #define MAX_TNL_ASSOC      32       /* Max num of TNL Assoc between CU and DU */
 #define MAXCELLINENB       256      /* Max num of cells served by eNB */
@@ -231,14 +246,14 @@
 #define MAXNUMOFUACPERPLMN 64       /* Maximum number of signalled categories per PLMN */
 #define NR_RANAC           150      /* RANAC */
 #define DEFAULT_CELLS      1        /* Max num of broadcast PLMN ids */
-
+#define IE_EXTENSION_LIST_COUNT 1
 
 /* Macro definitions for MIB/SIB1 */
 #define SYS_FRAME_NUM 0
 #define SPARE 0
 #define SSB_SC_OFFSET 0
 #define DU_RANAC 1
-#define CELL_IDENTITY 32
+#define CELL_IDENTITY 16
 
 /* Macro definitions for DUtoCuRrcContainer */
 #define CELL_GRP_ID 1
@@ -281,12 +296,6 @@
 #define DMRS_ADDITIONAL_POS  0          /* DMRS Additional poistion */
 #define RES_ALLOC_TYPE       1          /* Resource allocation type */
 
-#ifdef EGTP_TEST
-#define UE_ID 1
-#define RB_ID 1
-#define LC_ID 1
-#endif
-
 /* MACRO definitions for modulcation order */
 #define MOD_ORDER_QPSK  2
 #define MOD_ORDER_QAM16 4
@@ -294,6 +303,16 @@
 #define MOD_ORDER_QAM256 8
 #define PDSCH_MCS_INDEX 20  /* For 64QAM, valid mcs index: 17-28 in 38.214  - Table 5.1.3.1-1*/
 #define PUSCH_MCS_INDEX 10  /* For 16QAM, valid mcs index: 10-16 in 38.214  - Table 5.1.3.1-1*/
+
+/*VALID Tunnel ID*/
+#define MIN_TEID 1   /*[Spec 29.281,Sec 5.1]: All Zero TEIDs are never assigned for setting up GTP-U Tunnel*/
+#define MAX_TEID MAX_NUM_DRB * MAX_NUM_UE  /*[Spec 29.281]: Max limit is not mentioned but as per GTP-U Header Format, TEID occupies 4 octets */
+
+/* Slice Ratio */
+#define MAX_RATIO        30
+#define MIN_RATIO        20
+#define DEDICATED_RATIO  10
+#define NUM_OF_SUPPORTED_SLICE  2
 
 typedef enum
 {
@@ -491,7 +510,6 @@ typedef enum
    PUSCH_MAPPING_TYPE_B,
 }puschMappingType;
 
-
 typedef struct f1RrcVersion
 {
    char    rrcVer[30];     /* Latest RRC Version */
@@ -595,14 +613,14 @@ typedef struct f1SulInfo
 typedef struct f1FreqBand
 {
    uint16_t   nrFreqBand;
-   uint16_t   sulBand[MAXNRCELLBANDS];
+   uint16_t   sulBand[MAX_NRCELL_BANDS];
 }F1FreqBand;
 
 typedef struct f1NrFreqInfo
 {
    uint32_t        nrArfcn;
    F1SulInfo  sulInfo;
-   F1FreqBand freqBand[MAXNRCELLBANDS];
+   F1FreqBand freqBand[MAX_NRCELL_BANDS];
 }F1NrFreqInfo;
 
 typedef struct f1NrFddInfo
@@ -648,12 +666,6 @@ typedef struct f1EutraModeInfo
    }mode;
 }F1EutraModeInfo;
 
-typedef struct f1Snsaai
-{
-   uint8_t   sst;
-   uint32_t  sd;
-}F1Snsaai;
-
 typedef struct epIpAddr
 {
    char transportAddr[20]; /* Transport Layer Address */
@@ -667,14 +679,15 @@ typedef struct epIpAddrPort
 
 typedef struct f1TaiSliceSuppLst
 {
-   bool       pres;
-   F1Snsaai   snssai[MAX_NUM_OF_SLICE_ITEMS];   
+   uint8_t    numSupportedSlices;
+   Snssai    **snssai;   
 }F1TaiSliceSuppLst;
 
 typedef struct f1SrvdPlmn
 {
-   Plmn              plmn;
-   F1TaiSliceSuppLst   taiSliceSuppLst;
+   Plmn   plmn;
+   Plmn   extPlmn;    /* Extended available PLMN list */
+   F1TaiSliceSuppLst taiSliceSuppLst;
 }F1SrvdPlmn;
 
 typedef struct f1BrdcstPlmnInfo
@@ -690,8 +703,7 @@ typedef struct f1CellInfo
 {
    NrEcgi   nrCgi;                   /* Cell global Identity */
    uint32_t nrPci;                   /* Physical Cell Identity */
-   Plmn   plmn[MAX_PLMN];     /* Available PLMN list */
-   Plmn   extPlmn[MAX_PLMN];  /* Extended available PLMN list */
+   F1SrvdPlmn srvdPlmn[MAX_PLMN];
 }F1CellInfo;
 
 typedef struct f1DuCellInfo
@@ -703,7 +715,7 @@ typedef struct f1DuCellInfo
    uint8_t            measTimeCfg;  /* Measurement timing configuration */
    F1CellDir          cellDir;      /* Cell Direction */
    F1CellType         cellType;     /* Cell Type */
-   F1BrdcstPlmnInfo   brdcstPlmnInfo[MAXBPLMNNRMINUS1]; /* Broadcast PLMN Identity Info List */
+   F1BrdcstPlmnInfo   brdcstPlmnInfo[MAX_BPLMN_NRCELL_MINUS_1]; /* Broadcast PLMN Identity Info List */
 }F1DuCellInfo;
 
 typedef struct f1DuSysInfo
@@ -1226,6 +1238,29 @@ typedef struct sib1Params
    SrvCellCfgCommSib     srvCellCfgCommSib;
 }Sib1Params;
 
+typedef struct policyMemberList
+{
+   Plmn plmn;
+   Snssai  snssai;
+}PolicyMemberList;
+
+typedef struct rrmPolicy
+{
+   ResourceType     rsrcType;
+   uint8_t          numMemberList;
+   PolicyMemberList **memberList;
+   uint8_t          policyMaxRatio;
+   uint8_t          policyMinRatio;
+   uint8_t          policyDedicatedRatio;
+}RrmPolicy;
+
+typedef struct copyOfRecvdSliceCfg
+{
+   RrmPolicy          **rrmPolicy;
+   uint8_t            totalRrmPolicy;
+   uint8_t            totalSliceCount;
+}CopyOfRecvdSliceCfg;
+
 typedef struct duCfgParams
 {
    SctpParams         sctpParams;                  /* SCTP Params */
@@ -1239,7 +1274,10 @@ typedef struct duCfgParams
    MacCellCfg	       macCellCfg;	              /* MAC cell configuration */
    MibParams          mibParams;                  /* MIB Params */
    Sib1Params         sib1Params;                 /* SIB1 Params */
+   CopyOfRecvdSliceCfg tempSliceCfg;
 }DuCfgParams;
+
+DuCfgParams duCfgParam;
 
 /*function declarations */
 void FillSlotConfig();
@@ -1247,6 +1285,16 @@ uint8_t readClCfg();
 uint8_t readCfg();
 uint8_t duReadCfg(); 
 uint16_t calcSliv(uint8_t startSymbol, uint8_t lengthSymbol);
+
+/* VNF_ENABLE */
+#include "../nfapi/nfapi_vnf_interface.h"
+extern p5_p7_cfg *nfapi_p5_p7_cfg;
+uint8_t vnfCfgReq();
+uint8_t readVnfCfg();
+
+#ifdef O1_ENABLE
+uint8_t cpyRrmPolicyInDuCfgParams(RrmPolicyList rrmPolicy[], uint8_t policyNum, CopyOfRecvdSliceCfg *tempSliceCfg);
+#endif
 
 #endif /* __DU_CONFIG_H__ */
 

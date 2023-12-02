@@ -59,10 +59,9 @@ endif
 
 C_OBJS_WO_LOG=$(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(C_SRCS))
 HDR_FILES+= $(wildcard $(SRC_DIR)/*.[hx])
-
+HDR_FILES+=$(wildcard $(NFAPI_DIR)/*.[h]) # VNF ENABLE
 
 lib: $(LIB_DIR)/libcm.a
-
 include $(COM_BUILD_DIR)/compile.mak
 
 #-------------------------------------------------------------#

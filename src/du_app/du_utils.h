@@ -41,6 +41,7 @@
 #define EVTSLOTIND    8
 #define EVTSTARTPOLL  9
 #define EVENT_RIC_DATA  10
+#define EVT_VNF_CFG 11
 
 /* allocate and zero out a static buffer */
 

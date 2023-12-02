@@ -25,11 +25,10 @@
 #include "fapi_vendor_extension.h"
 #endif
 #include "phy_stub.h"
+#include "mac_sch_interface.h"
 
-uint8_t l1SendUlUserData();
-uint8_t l1SendStatusPdu();
-uint16_t l1BuildAndSendSlotIndication();
-uint16_t l1BuildAndSendStopInd();
+extern uint16_t l1BuildAndSendBSR(uint8_t ueIdx, BsrType bsrType,\
+             LcgBufferSize lcgBsIdx[MAX_NUM_LOGICAL_CHANNEL_GROUPS]);
 pthread_t thread = 0;
 
 /*******************************************************************
@@ -50,15 +49,21 @@ pthread_t thread = 0;
 void GenerateTicks()
 {
 #ifdef NR_TDD
-   int     milisec = 0.5;        /* 0.5ms */
+   float     milisec = 0.5;        /* 0.5ms */
 #else
-   int     milisec = 1;          /* 1ms */
+   float     milisec = 1;          /* 1ms */
 #endif
    struct timespec req = {0};
+   uint8_t ratio = 2;
 
    slotIndicationStarted = true;
    req.tv_sec = 0;
-   req.tv_nsec = milisec * 1000000L;
+
+   /* Currently the code takes longer that one slot indication to execute.
+    * Hence, multiplying slot time interval by 2 in order to give enough time 
+    * for L2 to complete one slot processing.
+    * The ratio must be removed once code optimization is complete */
+   req.tv_nsec = milisec * 1000000L * ratio;
 
    DU_LOG("\nPHY_STUB : GenerateTicks : Starting to generate slot indications");
 
@@ -136,22 +141,71 @@ void l1HdlSlotIndicaion(bool stopSlotInd)
  * ****************************************************************/
 void *l1ConsoleHandler(void *args)
 {
-   char ch;
+   char ch, ch1;
+   uint8_t drbIdx = 0, lcgIdx = 0, ueIdx = 0;
+   LcgBufferSize lcgBS[MAX_NUM_LOGICAL_CHANNEL_GROUPS];
+   /* The below variable is taken for sending specific number of UL Packets  
+    * For sendind 4500 Ul packets for three UEs the calculation of
+    * [counter * NUM_DRB_TO_PUMP_DATA * MAX_NUM_UE * NUM_UL_PACKETS] must be equal to 4500 */
+   uint32_t counter=500; 
+
    while(true)
    {
       /* Send UL user data to DU when user enters 'd' on console */
-      if((ch = getchar()) == 'd')
+      ch = getchar();
+      if(ch == 'd')
       {
-         /* Start Pumping data from PHY stub to DU */
-         DU_LOG("\nDEBUG  --> PHY STUB: Sending UL User Data");
-         l1SendUlUserData();
+         while(counter)
+         {
+            /* Start Pumping data from PHY stub to DU */
+            for(ueIdx=0; ueIdx < MAX_NUM_UE; ueIdx++)
+            {
+               for(drbIdx = 0; drbIdx < NUM_DRB_TO_PUMP_DATA; drbIdx++) //Number of DRB times the loop will run
+               {
+                  DU_LOG("\nDEBUG  --> PHY STUB: Sending UL User Data[DrbId:%d] for UEIdx %d\n",drbIdx,ueIdx);
+                  l1SendUlUserData(drbIdx,ueIdx);
+                  /* TODO :- sleep(1) will be removed once we will be able to
+                   * send continuous data packet */
+                  sleep(1);
+               }
+            }
+            counter--;
+         }
       }
-      else if((ch = getchar()) == 'c')
+      else if(ch =='c')
       {
          /* Send Control PDU from PHY stub to DU */
-	 DU_LOG("\nDEBUG  --> PHY STUB: Sending Status PDU");
-	 l1SendStatusPdu();
+         DU_LOG("\nDEBUG  --> PHY STUB: Sending Status PDU");
+         l1SendStatusPdu();
       }
+      else if(ch == 'b')
+      {
+         memset(lcgBS, 0, (MAX_NUM_LOGICAL_CHANNEL_GROUPS * sizeof(LcgBufferSize)));
+         /* Send Control PDU from PHY stub to DU */
+         ch1 = getchar();
+         for(ueIdx = 0; ueIdx < MAX_NUM_UE; ueIdx++)
+         {
+            if(ch1 == 'l')
+            {
+               for(lcgIdx = 0; lcgIdx < NUM_DRB_TO_PUMP_DATA; lcgIdx++)
+               {
+                  lcgBS[lcgIdx].lcgId = MIN_DRB_LCID + lcgIdx;
+                  lcgBS[lcgIdx].bsIdx = lcgIdx + 1;
+               }
+               l1BuildAndSendBSR(ueIdx, LONG_BSR, lcgBS);
+            }
+            else if(ch1 == 's')
+            {
+               lcgIdx = 0;
+
+               lcgBS[lcgIdx].lcgId = MIN_DRB_LCID + lcgIdx;
+               lcgBS[lcgIdx].bsIdx = lcgIdx + 1;
+               l1BuildAndSendBSR(ueIdx, SHORT_BSR, lcgBS);
+            }
+         }
+      }
+      DU_LOG("\n");
+      continue;
    }
 }
 

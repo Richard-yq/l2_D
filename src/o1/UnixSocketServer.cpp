@@ -24,7 +24,7 @@
 #include "UnixSocketServer.hpp"
 #include "Alarm.hpp"
 #include "AlarmManager.hpp"
-#include "ConfigInterface.h"
+#include "CmInterface.h"
 #include "GlobalDefs.hpp"
 #include <iostream>
 #include <cstdio>
@@ -147,12 +147,14 @@ int UnixSocketServer::readMessage(int fd)
       switch(msgHdr->action)
       {
          case RAISE_ALARM: 
+
                      if(AlarmManager::instance().raiseAlarm(alrm))
                      {
                         O1_LOG("\nO1 UnixSocketServer : "
                                "Alarm raised for alarm Id %s",
                                 alrmRec->alarmId);
                      }
+
                      else
                      {
                         O1_LOG("\nO1 UnixSocketServer : "
@@ -160,12 +162,14 @@ int UnixSocketServer::readMessage(int fd)
                                 alrmRec->alarmId);
                      }
                      break;  
+                     
          case CLEAR_ALARM: 
                      if(AlarmManager::instance().clearAlarm(alrm))
                      {
                         O1_LOG("\nO1 UnixSocketServer : "
                                "Alarm cleared for alarm Id %s",
                                 alrmRec->alarmId);
+
                      }
                      else
                      {
@@ -174,37 +178,6 @@ int UnixSocketServer::readMessage(int fd)
                                 alrmRec->alarmId);
                      }
                      break;
-#if 0
-         case GET_STARTUP_CONFIG:
-                     {
-                        StartupConfig cfg;
-			               InitConfig::instance().getCurrInterfaceConfig(cfg);
-                        O1_LOG("\nO1 UnixSocketServer : "
-                               "cfg.DU_IPV4_Addr [%s]",
-                                cfg.DU_IPV4_Addr);
-                        O1_LOG("\nO1 UnixSocketServer : "
-                               "cfg.DU_Port [%d]", 
-                                cfg.DU_Port);
-                        O1_LOG("\nO1 UnixSocketServer : "
-                               "cfg.CU_IPV4_Addr [%s]", 
-                                cfg.CU_IPV4_Addr);
-                        O1_LOG("\nO1 UnixSocketServer : "
-                               "cfg.CU_Port [%d]", 
-                                cfg.CU_Port);
-                        O1_LOG("\nO1 UnixSocketServer : "
-                               "cfg.RIC_IPV4_Addr [%s]", 
-                                cfg.RIC_IPV4_Addr);
-                        O1_LOG("\nO1 UnixSocketServer : "
-                               "cfg.RIC_Port [%d]", 
-                                cfg.RIC_Port);
-                        if (write (fd, &cfg, sizeof(cfg)) < 0)
-                        {
-                           O1_LOG("\nO1 UnixSocketServer : "
-                                  "Error sending startup configuration \n");
-                        }
-                        break; 
-                     }
-#endif
          default:    
                      O1_LOG("\nO1 UnixSocketServer : No action performed"); 
                      break;

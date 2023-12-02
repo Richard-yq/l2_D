@@ -27,6 +27,10 @@
 #include "Alarm.hpp"
 #include "Singleton.hpp"
 
+#include "PnfRegistrationThread.hpp"
+#include "VesUtils.hpp"
+#include "VesEventHandler.hpp"
+
 using std::map;
 
 

@@ -31,6 +31,7 @@ BUILD_DIR=$(PWD)
 ROOT_DIR_SCRIPTS =$(patsubst %/build/scripts,%,$(BUILD_DIR))
 COM_BUILD_DIR=$(BUILD_DIR)/../common
 ROOT_DIR=$(patsubst %/build/odu,%,$(BUILD_DIR))
+
 export BUILD_DIR
 export COM_BUILD_DIR
 export ROOT_DIR
@@ -53,6 +54,9 @@ export BIN_DIR
 # Path where the libraries are packaged and these are used when not built from source
 EXT_LIB_DIR  =$(ROOT_DIR)/lib
 export EXT_LIB_DIR
+# Path where the nfapi module
+NFAPI_DIR =$(ROOT_DIR)/src/nfapi
+export NFAPI_DIR
 
 CMENBE2EOPTS += $(RLOG_OPTS_TEXT)
 

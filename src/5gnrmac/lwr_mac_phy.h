@@ -18,6 +18,9 @@
 #ifndef _LWR_MAC_PHY_H_
 #define _LWR_MAC_PHY_H_
 
+#include "../nfapi/nfapi_interface.h"
+#include "../nfapi/vnf_p7.h"
+#include "../cm/common_def.h"
 
 typedef enum
 {
@@ -71,7 +74,12 @@ void LwrMacStartWlsRcvr();
 
 uint8_t LwrMacSendToL1(void *msg);
 #endif
-
+void ORAN_OAI_procP7_message(nfapi_p7_message_header_t header, void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7);
+uint8_t ORAN_OAI_procSlotInd(NR_UL_IND_t *UL_INFO);
+uint8_t ORAN_OAI_procRxDataInd(nfapi_nr_rx_data_indication_t  *fapiRxDataInd);
+uint8_t ORAN_OAI_procCrcInd(nfapi_nr_crc_indication_t  *fapiCrcInd);
+uint8_t ORAN_OAI_procUciInd(nfapi_nr_uci_indication_t  *fapiUciInd);
+uint8_t ORAN_OAI_procRachInd(nfapi_nr_rach_indication_t  *fapiRachInd);
 /**********************************************************************
   End of file
  **********************************************************************/

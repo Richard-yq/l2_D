@@ -229,17 +229,18 @@ uint8_t unpackRachInd(RachIndFunc func, Pst *pst, Buffer *mBuf)
  *         RFAILED - failure
  *
  * ****************************************************************/
-uint8_t packSlotInd (Pst *pst, SlotTimingInfo *slotInd)
+uint8_t packSlotInd (Pst *pst, NR_UL_IND_t *UL_INFO)
 {
    if(pst->selector == ODU_SELECTOR_LWLC)
    {
       Buffer *mBuf = NULLP;
       if(ODU_GET_MSG_BUF(pst->region, pst->pool, &mBuf) != ROK)
       {
-	 DU_LOG("\nERROR  -->  LWR_MAC: Memory allocation failed in packSlotInd");
-	 return RFAILED;
+	      DU_LOG("\nERROR  -->  LWR_MAC: Memory allocation failed in packUL_INFO");
+	      return RFAILED;
       }
-      CMCHKPK(oduPackPointer,(PTR)slotInd, mBuf);
+
+      CMCHKPK(oduPackPointer,(PTR)UL_INFO, mBuf);
       return ODU_POST_TASK(pst, mBuf);
    }
    return RFAILED;
@@ -266,12 +267,12 @@ uint8_t unpackSlotInd(SlotIndFunc func, Pst *pst, Buffer *mBuf)
 {
    if(pst->selector == ODU_SELECTOR_LWLC)
    {
-      SlotTimingInfo *slotInd = NULLP;
+      NR_UL_IND_t *UL_INFO = NULLP;
 
       /* unpack the address of the structure */
-      CMCHKUNPK(oduUnpackPointer, (PTR *)&slotInd, mBuf);
+      CMCHKUNPK(oduUnpackPointer, (PTR *)&UL_INFO, mBuf);
       ODU_PUT_MSG_BUF(mBuf);
-      return (*func)(pst, slotInd);
+      return (*func)(pst, UL_INFO);
    }
    return RFAILED;
 }

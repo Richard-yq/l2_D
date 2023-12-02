@@ -26,8 +26,13 @@
 #define CU_POOL 1
 #define MAX_DU_PORT 2
 #define DU_PORT 38472
+#define MAX_NUM_OF_SLICE 1024 /* As per the spec 38.473, maxnoofSliceItems = 1024*/
 
+/*VALID Tunnel ID*/
+#define MIN_TEID 1   /*[Spec 29.281,Sec 5.1]: All Zero TEIDs are never assigned for setting up GTP-U Tunnel*/
+#define MAX_TEID MAX_NUM_DRB * MAX_NUM_UE /*[Spec 29.281]: Max limit is not mentioned but as per GTP-U Header Format, TEID occupies 4 octets */
 /* allocate and zero out a static buffer */
+
 #define CU_ALLOC(_datPtr, _size)                             \
 {                                                            \
    S16 _ret;                                                 \
@@ -44,7 +49,6 @@
    if(_datPtr)                                               \
    SPutSBuf(CU_APP_MEM_REG, CU_POOL,                         \
          (Data *)_datPtr, _size);
-
 
 typedef struct ipAddr
 {
@@ -87,6 +91,8 @@ typedef struct cuCfgParams
    Plmn             plmn;
    EgtpParams       egtpParams;
    RrcVersion       rrcVersion;
+   uint8_t          numSnssaiSupported;
+   Snssai           *snssaiList[MAX_NUM_OF_SLICE];
 }CuCfgParams;
 CuCfgParams cuCfgParams; //global variable to hold all configs
 

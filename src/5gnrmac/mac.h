@@ -131,6 +131,7 @@ typedef struct macDlInfo
 
 typedef struct macDlData
 {
+   uint8_t  ueId;
    uint16_t numPdu;
    MacDlInfo  pduInfo[MAX_MAC_DL_PDU];
 }MacDlData;
@@ -152,16 +153,28 @@ typedef struct dlHarqEnt
 /* Uplink deidcated logical channel info */
 typedef struct ulLcCb
 {
-   uint8_t   lcId;      /* Logical Channel Id */
-   uint8_t   lcGrpId;   /* Logical Channel group */
-   MacLcState lcActive;  /* Is LC active ? */
+   uint8_t    lcId;         /* Logical Channel Id */
+   uint8_t    lcGrpId;      /* Logical Channel group */
+   MacLcState lcActive;     /* Is LC active ? */
+   /*Commenting as S-NSSAI and PDU session will be used in future scope*/
+   /*For eg: When we have to send these for AMBR cases*/
+   #if 0
+   uint16_t   pduSessionId; /*Pdu Session Id*/
+   Snssai     *snssai;      /*S-NSSAI assoc with LCID*/
+   #endif
 }UlLcCb;
 
 /* Downlink dedicated logical channel info */
 typedef struct dlLcCb
 {
-   uint8_t   lcId;      /* Logical channel Id */ 
-   MacLcState   lcState;  /* Is LC active ? */
+   uint8_t    lcId;        /* Logical channel Id */ 
+   MacLcState lcState;     /* Is LC active ? */
+   /*Commenting as S-NSSAI and PDU session will be used in future scope*/
+   /*For eg: When we have to send these info via FAPI to phy layer*/
+   #if 0
+   uint16_t   pduSessionId;/*Pdu Session Id*/
+   Snssai     *snssai;    /*S-NSSAI assoc with LCID*/
+   #endif
 }DlLcCb;
 
 /* BSR Information */
@@ -191,7 +204,7 @@ typedef struct ueDlCb
 /* UE Cb */
 typedef struct macUeCb
 {
-   uint16_t     ueIdx;    /* UE Idx assigned by DU APP */
+   uint16_t     ueId;     /* UE Id assigned by DU APP */
    uint16_t     crnti;    /* UE CRNTI */
    MacCellCb    *cellCb;  /* Pointer to cellCb to whihc this UE belongs */
    UeState      state;    /* Is UE active ? */
@@ -218,13 +231,13 @@ struct macCellCb
 
 typedef struct macCb
 {
-   Inst       macInst;
-   ProcId     procId;
-   uint8_t    tmrRes;                    /*!< Timer resolution */
-   CmTqCp     tmrTqCp;                   /*!< Timer Task Queue Cntrl Point */
-   CmTqType   tmrTq[MAC_TQ_SIZE];        /*!< Timer Task Queue */
-   CmTimer    tmrBlk[MAX_NUM_TIMER];     /*!< Timer Block */
-   MacCellCb  *macCell[MAX_NUM_CELL];
+   Inst        macInst;
+   ProcId      procId;
+   uint8_t     tmrRes;                    /*!< Timer resolution */
+   CmTqCp      tmrTqCp;                   /*!< Timer Task Queue Cntrl Point */
+   CmTqType    tmrTq[MAC_TQ_SIZE];        /*!< Timer Task Queue */
+   CmTimer     tmrBlk[MAX_NUM_TIMER];     /*!< Timer Block */
+   MacCellCb   *macCell[MAX_NUM_CELL];
 }MacCb;
 
 /* global variable */
@@ -244,7 +257,10 @@ uint8_t macProcUlCcchInd(uint16_t cellId, uint16_t crnti, uint16_t rrcContSize, 
 uint8_t macProcShortBsr(uint16_t cellId, uint16_t crnti, uint8_t lcgId, uint32_t bufferSize);
 uint8_t macProcUlData(uint16_t cellId, uint16_t rnti, SlotTimingInfo slotInfo, \
    uint8_t lcId, uint16_t pduLen, uint8_t *pdu);
-uint8_t sendSchedRptToRlc(DlSchedInfo dlInfo, SlotTimingInfo slotInfo);
+uint8_t sendSchedRptToRlc(DlSchedInfo dlInfo, SlotTimingInfo slotInfo, uint8_t ueIdx, uint8_t schInfoIdx);
+uint8_t macProcLongBsr(uint16_t cellId, uint16_t crnti,uint8_t numLcg,\
+                         DataVolInfo dataVolInfo[MAX_NUM_LOGICAL_CHANNEL_GROUPS]);
+void freeMacSliceCfgReq(MacSliceCfgReq *cfgReq,Pst *pst);
 #endif
 /**********************************************************************
   End of file

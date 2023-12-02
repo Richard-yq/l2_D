@@ -349,7 +349,7 @@ uint16_t l1BuildAndSendRxDataInd(uint16_t slot, uint16_t sfn, fapi_ul_pusch_pdu_
    uint32_t msgLen = 0;
    MsgType type = 0;
 
-   GET_UE_IDX(puschPdu.rnti, ueId);
+   GET_UE_ID(puschPdu.rnti, ueId);
    if(!ueDb.ueCb[ueId-1].msg3Sent)
    {
       ueDb.ueCb[ueId-1].ueId = ueId;
@@ -368,11 +368,11 @@ uint16_t l1BuildAndSendRxDataInd(uint16_t slot, uint16_t sfn, fapi_ul_pusch_pdu_
       ueDb.ueCb[ueId-1].msg5Sent = true;
       type = MSG_TYPE_MSG5;
    }
-   else if(!ueDb.ueCb[ueId-1].msgRegistrationComp)
-   {
-      ueDb.ueCb[ueId-1].msgRegistrationComp = true;
-      type = MSG_TYPE_REGISTRATION_COMPLETE; 
-   }
+   // else if(!ueDb.ueCb[ueId-1].msgRegistrationComp)
+   // {
+   //    ueDb.ueCb[ueId-1].msgRegistrationComp = true;
+   //    type = MSG_TYPE_REGISTRATION_COMPLETE; 
+   // }
    else if(!ueDb.ueCb[ueId-1].msgSecurityModeComp)
    {
       ueDb.ueCb[ueId-1].msgSecurityModeComp = true;
@@ -488,7 +488,7 @@ uint16_t l1BuildAndSendRxDataInd(uint16_t slot, uint16_t sfn, fapi_ul_pusch_pdu_
 	    L is length of PDU i.e 6bytes here 
 	    From 38.321 section 6.1.1
 	  */
-	 uint8_t msg[] = {1, pduLen, 0, 3, 0x2a, 0x40, 0, 0, 0, 0, 0, 0, 0, 0};
+	 uint8_t msg[] = {1, pduLen, 0, 1, 0x2a, 0x40, 0, 0, 0, 0, 0, 0, 0, 0}; // MWNL TEST Sequence number 3
 
 	 pduLen += 2;  /* 2bytes of header */
 	 memcpy(pdu, &msg, pduLen);
@@ -524,7 +524,8 @@ uint16_t l1BuildAndSendRxDataInd(uint16_t slot, uint16_t sfn, fapi_ul_pusch_pdu_
 	 L is length of PDU i.e 6bytes here
 	 From 38.321 section 6.1.1
 	 */
-	 uint8_t msg[] = {1, pduLen, 0, 6, 8, 64, 0, 0, 0, 0, \
+   // MWNL TEST Sequence number 6
+	 uint8_t msg[] = {1, pduLen, 0, 2, 8, 64, 0, 0, 0, 0, \ 
 	                  0, 0, 0, 0, 0};
 	
 	 pduLen += 2;  /* 2bytes of header */
@@ -1042,23 +1043,30 @@ S16 l1HdlUlTtiReq(uint16_t msgLen, void *msg)
       numPdus--;
    }
 
+   /* TODO: [SFN:SLOT] at which RACH Indication is sent should be calculated
+    * based on PRACH cfg index */
+   /* Send RACH Ind to L2 for first UE */
    if(ueDb.ueCb[UE_IDX_0].rachIndSent == false && ulTtiReq->sfn == 16 && ulTtiReq->slot == 6)
    {
       ueDb.ueCb[UE_IDX_0].rachIndSent = true;
       l1BuildAndSendRachInd(ulTtiReq->slot, ulTtiReq->sfn);
       ueDb.numActvUe++;
    }
-
-   //Following can be enabled to test with a second UE
-#if 0
+   /* Send RACH Ind to L2 for second UE */
    if(ueDb.ueCb[UE_IDX_1].rachIndSent == false && ulTtiReq->sfn == 304 && ulTtiReq->slot == 0)
    {
       ueDb.ueCb[UE_IDX_1].rachIndSent = true;
       l1BuildAndSendRachInd(ulTtiReq->slot, ulTtiReq->sfn);
       ueDb.numActvUe++;
    }
-#endif
 
+   /* Send RACH Ind to L2 for third UE */
+   if(ueDb.ueCb[UE_IDX_2].rachIndSent == false && ulTtiReq->sfn == 526 && ulTtiReq->slot == 0)
+   {
+      ueDb.ueCb[UE_IDX_2].rachIndSent = true;
+      l1BuildAndSendRachInd(ulTtiReq->slot, ulTtiReq->sfn);
+      ueDb.numActvUe++;
+   }
    MAC_FREE(msg, msgLen);
 #endif
    return ROK;
@@ -1319,7 +1327,7 @@ S16 l1HdlUlDciReq(uint16_t msgLen, void *msg)
  *         RFAILED - failure
  *
  * ****************************************************************/
-uint8_t l1SendUlUserData()
+uint8_t l1SendUlUserData(uint8_t drbId, uint8_t ueIdx)
 {
    uint8_t cnt = 0;
    fapi_rx_data_indication_t *rxDataInd;
@@ -1328,6 +1336,7 @@ uint8_t l1SendUlUserData()
    uint16_t byteIdx = 0;
    uint32_t msgLen = 0;
    uint8_t idx = 0;
+   uint8_t lcId = 0;
 
    MAC_ALLOC(rxDataInd, sizeof(fapi_rx_data_indication_t));
    if(!rxDataInd)
@@ -1344,8 +1353,8 @@ uint8_t l1SendUlUserData()
 
    /* TODO : Fill pduInfo using PUSCH PDU. Currently hardcoding */
    pduInfo = &rxDataInd->pdus[idx];
-   pduInfo->handle = 100;
-   pduInfo->rnti = 100;
+   pduInfo->handle = ueIdx + ODU_START_CRNTI;
+   pduInfo->rnti = ueIdx + ODU_START_CRNTI;
    pduInfo->harqId = 1;
    /* Since user data size = 50bytes and 2 bytes of MAC header and 3 byte of RLC header, 
     * setting tbsize = 56 from Table 5.1.3.2-1 spec 38.214 */
@@ -1377,7 +1386,8 @@ uint8_t l1SendUlUserData()
 
     /* Below ulMsg supports 12bit SN for UM mode */
                                /*  SI  SN */
-    uint8_t ulMsg[] = {4, msgLen,   0, 0, 0, 0, 0, 50, 0, 0, 0, 0, 0, 1, 0, 0, 192, 168, 130, 81, 192, 168, 130, 82, 84, 104,
+    lcId = MIN_DRB_LCID + drbId;
+    uint8_t ulMsg[] = {lcId, msgLen,   0, 0, 0, 0, 0, 50, 0, 0, 0, 0, 0, 1, 0, 0, 192, 168, 130, 81, 192, 168, 130, 82, 84, 104,
     105, 115, 32, 105, 115, 32, 69, 71, 84, 80, 32, 100, 97, 116, 97, 32, 102, 114, 111, 109, 32, 68, 85, 0, 0, 0, 0, 0};
     msgLen += 2;  /* 2bytes of header */
     memcpy(pdu, &ulMsg, msgLen);
@@ -1401,9 +1411,9 @@ uint8_t l1SendUlUserData()
    fillMsgHeader(&rxDataInd->header, FAPI_RX_DATA_INDICATION, msgLen);
 
     /* Send Message to peer */
-    while(cnt < 2)
+    while(cnt < NUM_UL_PACKETS)
     {
-       DU_LOG("\nDEBUG  -->  PHY STUB : Sending UL User Data[%d] at sfn %d slot %d", cnt+1, sfnValue, slotValue);
+       DU_LOG("\nDEBUG  -->  PHY STUB : Sending UL User Data[%d][LCID:%d] at sfn %d slot %d", cnt+1, lcId, sfnValue, slotValue);
        /* Sending Rx data indication to MAC */
        rxDataInd->sfn = sfnValue;
        rxDataInd->slot = slotValue;
@@ -1575,6 +1585,150 @@ void l1ProcessFapiRequest(uint8_t msgType, uint32_t msgLen, void *msg)
 #endif
    }
 }
+
+#ifdef INTEL_FAPI
+/*******************************************************************
+ *
+ * @brief Builds and Send the BSR message to MAC
+ *
+ * @details
+ *
+ *    Function : l1BuildAndSendBSR
+ *
+ *   Functionality:
+ *          -Send the BSR Message to MAC
+ *
+ * @params[in]  BSR type 
+ *              array of LCGID and BSIdx
+ * @return void
+ *
+ *****************************************************************/
+uint16_t l1BuildAndSendBSR(uint8_t ueIdx, BsrType bsrType,\
+             LcgBufferSize lcgBsIdx[MAX_NUM_LOGICAL_CHANNEL_GROUPS])
+{
+   fapi_rx_data_indication_t *rxDataInd;
+   fapi_pdu_ind_info_t       *pduInfo;
+   uint8_t  *pdu = NULLP;
+   uint16_t byteIdx = 0;
+   uint32_t msgLen = 0;
+   uint8_t pduIdx = 0, lcgIdx = 0, lcgIdxPos = 0;
+
+   MAC_ALLOC(rxDataInd, sizeof(fapi_rx_data_indication_t));
+   if(!rxDataInd)
+   {
+      DU_LOG("\nERROR  -->  PHY_STUB: Memory allocation failed for Rx Data Indication");
+      return RFAILED;
+   }
+   memset(rxDataInd, 0, sizeof(fapi_rx_data_indication_t));
+
+   msgLen = sizeof(fapi_rx_data_indication_t) - sizeof(fapi_msg_t);
+   rxDataInd->sfn = 0;
+   rxDataInd->slot = 0;
+   rxDataInd->numPdus = 1;
+
+   pduInfo = &rxDataInd->pdus[pduIdx];
+   pduInfo->handle = (ODU_START_CRNTI + ueIdx);
+   pduInfo->rnti = (ODU_START_CRNTI + ueIdx);
+   pduInfo->harqId = 1;
+
+   /* Since status pdu size = 3bytes and 2 bytes of MAC header,
+    * setting tbsize = 24 from Table 5.1.3.2-1 spec 38.214 */
+   pduInfo->pdu_length = 24;
+   pduInfo->ul_cqi = 0;
+   pduInfo->timingAdvance = 0;
+   pduInfo->rssi = 0;
+
+   /* Filling pdu with random values for testing */
+   pduInfo->pduData = NULL;
+   MAC_ALLOC(pduInfo->pduData, pduInfo->pdu_length);
+   if(!pduInfo->pduData)
+   {
+      DU_LOG("\nERROR  -->  PHY_STUB: Memory allocation failed for Rx Data Pdu");
+      MAC_FREE(rxDataInd, sizeof(fapi_rx_data_indication_t));
+      return RFAILED;
+   }
+
+   /* Filling PDU */
+   pdu = (uint8_t *)pduInfo->pduData;
+
+   switch(bsrType)
+   {
+      case SHORT_BSR:
+         {
+            DU_LOG("\nDEBUG  -->  PHY_STUB: Forming SHORT BSR PDU ");
+
+            /* For Short BSR
+             * MAC subheader format is R/R/LcId (1Byte)
+             * LCId is 61
+             * From 38.321 section 6.1.1
+             */
+            pdu[byteIdx++] = 61;    // LCID
+            pdu[byteIdx++] = (lcgBsIdx[0].lcgId << 5) | lcgBsIdx[0].bsIdx;
+            break;
+         }
+
+      case LONG_BSR:
+         {
+            DU_LOG("\nDEBUG  -->  PHY_STUB: Forming LONG BSR PDU ");
+
+            /* For Long BSR
+             * MAC subheader format is R/R/LcId (1Byte)
+             * LCId is 62
+             * From 38.321 section 6.1.1
+             */
+            pdu[byteIdx++] = 62;    // LCID
+
+            /*Octet where lcgId bitmap will be present*/
+            lcgIdxPos = byteIdx;
+            byteIdx++;
+            for(lcgIdx = 0; lcgIdx < MAX_NUM_LOGICAL_CHANNEL_GROUPS; lcgIdx++)
+            {
+               if(lcgBsIdx[lcgIdx].bsIdx > 0)
+               {
+                  pdu[lcgIdxPos] |= 1 << lcgBsIdx[lcgIdx].lcgId;
+                  pdu[byteIdx++] = lcgBsIdx[lcgIdx].bsIdx;
+               }
+            }
+
+            break;
+         }
+
+      default:
+         {
+            DU_LOG("\nERROR  -->  PHY_STUB: Incorrect BSR type:%d!", bsrType);
+            if(pduInfo->pdu_length)
+               MAC_FREE(pduInfo->pduData, pduInfo->pdu_length);
+            MAC_FREE(rxDataInd, sizeof(fapi_rx_data_indication_t));
+            return RFAILED;
+         }
+   }
+   /* Filling MAC SDU for Padding bytes*/
+   if(byteIdx < pduInfo->pdu_length)
+   {
+      /* For Padding
+       * MAC subheader format is R/R/LCId (1byte)
+       * LCId is 63 for padding
+       * From 38.321 section 6.1.1
+       */
+      pdu[byteIdx++] = 63;
+
+      for(; byteIdx < pduInfo->pdu_length; byteIdx++)
+         pdu[byteIdx] = 0;
+   }
+   msgLen += pduInfo->pdu_length;
+   fillMsgHeader(&rxDataInd->header, FAPI_RX_DATA_INDICATION, msgLen);
+
+   /* Sending Rx data indication to MAC */
+   DU_LOG("\nINFO   -->  PHY STUB: Sending Rx data Indication to MAC");
+   procPhyMessages(rxDataInd->header.msg_id, sizeof(fapi_rx_data_indication_t), (void *)rxDataInd);
+
+   if(pduInfo->pdu_length)
+      MAC_FREE(pduInfo->pduData, pduInfo->pdu_length);
+   MAC_FREE(rxDataInd, sizeof(fapi_rx_data_indication_t));
+   return ROK;
+}
+#endif
+
 /**********************************************************************
   End of file
  **********************************************************************/

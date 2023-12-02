@@ -20,9 +20,10 @@ include ../common/rsys_fancy.mak
 include ../common/env.mak
 COLOR=$(COLOR_RED)
 
-SRC_DIR=$(ROOT_DIR)/src/du_app/
+SRC_DIR=$(ROOT_DIR)/src/du_app
 C_SRCS=$(wildcard $(SRC_DIR)/*.c)
 C_OBJS=$(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(C_SRCS))
+
 
 # prepare the list of common header files
 HDR_FILES+=$(wildcard $(CM_DIR)/env*.[hx])
@@ -31,6 +32,7 @@ HDR_FILES+=$(wildcard $(CM_DIR)/ssi*.[hx])
 HDR_FILES+=$(wildcard $(CM_DIR)/cm*.[hx])
 HDR_FILES+=$(wildcard $(CM_DIR)/lkw*.[hx])
 HDR_FILES+=$(wildcard $(CM_DIR)/lrg*.[hx])
+HDR_FILES+=$(wildcard $(NFAPI_DIR)/*.[hx]) # VNF ENABLE
 
 lib: $(LIB_DIR)/libduapp.a
 include $(COM_BUILD_DIR)/compile.mak

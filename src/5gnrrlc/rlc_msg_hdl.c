@@ -39,7 +39,7 @@
 #include "rlc_mac_inf.h"
 #include "du_app_rlc_inf.h"
 #include "rlc_upr_inf_api.h"
-
+#include "rlc_mgr.h"
 /*******************************************************************
  *
  * @brief Fills RLC UL UE Cfg Rsp from RlcCRsp 
@@ -64,7 +64,7 @@ uint8_t fillRlcUeCfgRsp(RlcUeCfgRsp *rlcCfgRsp, RlcCfgCfmInfo *rlcCRsp)
    uint8_t ret = ROK;
  
    rlcCfgRsp->cellId = rlcCRsp->cellId;
-   rlcCfgRsp->ueIdx  = rlcCRsp->ueId;
+   rlcCfgRsp->ueId   = rlcCRsp->ueId;
    for(idx = 0; idx < rlcCRsp->numEnt; idx++)
    {
       if(rlcCRsp->entCfgCfm[idx].status.status == CKW_CFG_CFM_OK)
@@ -142,10 +142,11 @@ void fillEntModeAndDir(uint8_t *entMode, uint8_t *direction, RlcMode rlcMode)
  *             RlcEntCfgInfo pointer
  *             RlcBearerCfg pointer
  *             Config Type 
- * @return void
+ * @return ROK -  SUCCESS
+ *         RFAILED - FAILURE
  *
  * ****************************************************************/
-void fillLcCfg(RlcEntCfgInfo *rlcUeCfg, RlcBearerCfg *duRlcUeCfg, uint8_t cfgType)
+uint8_t fillLcCfg(RlcCb *gCb, RlcEntCfgInfo *rlcUeCfg, RlcBearerCfg *duRlcUeCfg)
 {
    uint8_t lChRbIdx = 0;
 
@@ -153,8 +154,18 @@ void fillLcCfg(RlcEntCfgInfo *rlcUeCfg, RlcBearerCfg *duRlcUeCfg, uint8_t cfgTyp
    rlcUeCfg->rbType                = duRlcUeCfg->rbType;   // SRB or DRB
    rlcUeCfg->lCh[lChRbIdx].lChId   = duRlcUeCfg->lcId;   
    rlcUeCfg->lCh[lChRbIdx].type    = duRlcUeCfg->lcType;
+   if(duRlcUeCfg->snssai)
+   {
+      RLC_ALLOC(gCb, rlcUeCfg->snssai, sizeof(Snssai));
+      if(rlcUeCfg->snssai == NULLP)
+      {
+         DU_LOG("\nERROR  --> RLC : fillLcCfg(): Failed to allocate memory for snssai");
+         return RFAILED;
+      }
+      memcpy(rlcUeCfg->snssai, duRlcUeCfg->snssai, sizeof(Snssai));
+   }
    fillEntModeAndDir(&rlcUeCfg->entMode, &rlcUeCfg->dir, duRlcUeCfg->rlcMode);
-   rlcUeCfg->cfgType               = cfgType;
+   rlcUeCfg->cfgType               = duRlcUeCfg->configType;
    switch(rlcUeCfg->entMode)
    {
 
@@ -189,6 +200,7 @@ void fillLcCfg(RlcEntCfgInfo *rlcUeCfg, RlcBearerCfg *duRlcUeCfg, uint8_t cfgTyp
       default:
          break;
    }/* End of switch(entMode) */
+   return ROK;
 }
 
 /*******************************************************************
@@ -205,25 +217,62 @@ void fillLcCfg(RlcEntCfgInfo *rlcUeCfg, RlcBearerCfg *duRlcUeCfg, uint8_t cfgTyp
  * @params[in] 
  *             RlcEntCfgInfo pointer
  *             RlcBearerCfg pointer
- * @return void
+ * @return ROK - Success
+ *          RFAILED - Failure
  *
  ******************************************************************/
 
-void fillRlcCfg(RlcCfgInfo *rlcUeCfg, RlcUeCfg *ueCfg)
+uint8_t fillRlcCfg(RlcCb *gCb, RlcCfgInfo *rlcUeCfg, RlcUeCfg *ueCfg)
 {
    uint8_t lcIdx;
    
-   rlcUeCfg->ueId    = ueCfg->ueIdx;
+   rlcUeCfg->ueId    = ueCfg->ueId;
    rlcUeCfg->cellId  = ueCfg->cellId;
    rlcUeCfg->numEnt  = ueCfg->numLcs;
    rlcUeCfg->transId = getTransId();
 
    for(lcIdx = 0; lcIdx < rlcUeCfg->numEnt; lcIdx++)
    {
-      fillLcCfg(&rlcUeCfg->entCfg[lcIdx], &ueCfg->rlcLcCfg[lcIdx], ueCfg->rlcLcCfg[lcIdx].configType);
+      if(fillLcCfg(gCb, &rlcUeCfg->entCfg[lcIdx], &ueCfg->rlcLcCfg[lcIdx]) != ROK)
+      {
+          DU_LOG("\nERROR  --> RLC : fillRlcCfg(): Failed to fill LC configuration");
+          return RFAILED;
+      }
    }
+   return ROK;
 }
 
+/*******************************************************************
+ *
+ * @brief Fill RlcCfgCfmInfo structure for sending failure response to DU
+ *
+ * @details
+ *
+ *    Function : fillRlcCfgFailureRsp
+ *
+ *    Functionality:
+ *      Fill RlcCfgCfmInfo structure for sending failure response to DU
+ *
+ * @params[in] RlcCfgCfmInfo *cfgRsp, RlcUeCfg *ueCfg
+ *             
+ * @return void 
+ *
+ * ****************************************************************/
+void fillRlcCfgFailureRsp(RlcCfgCfmInfo *cfgRsp, RlcUeCfg *ueCfg)
+{
+   uint8_t cfgIdx =0;
+
+   cfgRsp->ueId = ueCfg->ueId;
+   cfgRsp->cellId = ueCfg->cellId;
+   cfgRsp->numEnt = ueCfg->numLcs;
+   for(cfgIdx =0; cfgIdx<ueCfg->numLcs; cfgIdx++)
+   {
+      cfgRsp->entCfgCfm[cfgIdx].rbId = ueCfg->rlcLcCfg[cfgIdx].rbId;
+      cfgRsp->entCfgCfm[cfgIdx].rbType = ueCfg->rlcLcCfg[cfgIdx].rbType;
+      cfgRsp->entCfgCfm[cfgIdx].status.status = RLC_DU_APP_RSP_NOK;
+      cfgRsp->entCfgCfm[cfgIdx].status.reason = CKW_CFG_REAS_NONE;
+   }
+}
 /*******************************************************************
  *
  * @brief Handles Ue Create Request from DU APP
@@ -244,8 +293,10 @@ void fillRlcCfg(RlcCfgInfo *rlcUeCfg, RlcUeCfg *ueCfg)
 uint8_t RlcProcUeCreateReq(Pst *pst, RlcUeCfg *ueCfg)
 {
    uint8_t ret = ROK;
-   RlcCfgInfo *rlcUeCfg = NULLP;
    RlcCb *gCb;
+   RlcCfgInfo *rlcUeCfg = NULLP;
+   RlcCfgCfmInfo cfgRsp;
+   Pst rspPst;
 
    gCb = RLC_GET_RLCCB(pst->dstInst);
    RLC_ALLOC(gCb, rlcUeCfg, sizeof(RlcCfgInfo));
@@ -257,11 +308,21 @@ uint8_t RlcProcUeCreateReq(Pst *pst, RlcUeCfg *ueCfg)
    else
    {
       memset(rlcUeCfg, 0, sizeof(RlcCfgInfo));
-      fillRlcCfg(rlcUeCfg, ueCfg); 
-      ret = RlcProcCfgReq(pst, rlcUeCfg);
+      ret = fillRlcCfg(gCb, rlcUeCfg, ueCfg); 
       if(ret != ROK)
-         DU_LOG("\nERROR  -->  RLC: Failed to configure Add/Mod/Del entities at RlcProcUeCreateReq()");
+      {
+         DU_LOG("\nERROR  -->  RLC: Failed to fill configuration at RlcProcUeCreateReq()");
+         FILL_PST_RLC_TO_DUAPP(rspPst, RLC_UL_INST, EVENT_RLC_UE_CREATE_RSP);
+         fillRlcCfgFailureRsp(&cfgRsp, ueCfg);
+         SendRlcUeCfgRspToDu(&rspPst, &cfgRsp);
 
+      }
+      else
+      {
+         ret = RlcProcCfgReq(pst, rlcUeCfg);
+         if(ret != ROK)
+            DU_LOG("\nERROR  -->  RLC: Failed to configure Add/Mod/Del entities at RlcProcUeCreateReq()");
+      }
    }
    RLC_FREE_SHRABL_BUF(pst->region, pst->pool, ueCfg, sizeof(RlcUeCfg));
    return ret;
@@ -292,7 +353,7 @@ uint8_t BuildAndSendRrcDeliveryReportToDu( RlcDlRrcMsgInfo *dlRrcMsgInfo )
     if(rrcDelivery)
     {
        rrcDelivery->cellId = dlRrcMsgInfo->cellId;
-       rrcDelivery->ueIdx  = dlRrcMsgInfo->ueIdx;
+       rrcDelivery->ueId  = dlRrcMsgInfo->ueId;
        rrcDelivery->srbId  = dlRrcMsgInfo->lcId ;
        rrcDelivery->rrcDeliveryStatus.deliveryStatus    = PDCP_SN;
        rrcDelivery->rrcDeliveryStatus.triggeringMessage = PDCP_SN;
@@ -341,7 +402,7 @@ uint8_t RlcProcDlRrcMsgTransfer(Pst *pst, RlcDlRrcMsgInfo *dlRrcMsgInfo)
 
    datReqInfo->rlcId.rbType = dlRrcMsgInfo->rbType;
    datReqInfo->rlcId.rbId = dlRrcMsgInfo->rbId;
-   datReqInfo->rlcId.ueId = dlRrcMsgInfo->ueIdx;
+   datReqInfo->rlcId.ueId = dlRrcMsgInfo->ueId;
    datReqInfo->rlcId.cellId = dlRrcMsgInfo->cellId;
    datReqInfo->lcType = dlRrcMsgInfo->lcType;
    datReqInfo->sduId = ++(rlcCb[pst->dstInst]->dlSduId);
@@ -420,30 +481,30 @@ uint8_t RlcProcUlData(Pst *pst, RlcData *ulData)
       if(ulData->pduInfo[idx].commCh)
       {
          RLC_SHRABL_STATIC_BUF_ALLOC(RLC_MEM_REGION_UL, RLC_POOL, cLchUlDat, \
-	    sizeof(RguCDatIndInfo));
-	 if(!cLchUlDat)
-	 {
-	    DU_LOG("\nERROR  -->  RLC : Memory allocation failed at RlcProcUlData");
-	    ret = RFAILED;
-	    break;
-	 }
+               sizeof(RguCDatIndInfo));
+         if(!cLchUlDat)
+         {
+            DU_LOG("\nERROR  -->  RLC : Memory allocation failed at RlcProcUlData");
+            ret = RFAILED;
+            break;
+         }
          memset(cLchUlDat, 0, sizeof(RguCDatIndInfo));
 
          cLchUlDat->cellId = ulData->cellId;
-         GET_UE_IDX(ulData->rnti, cLchUlDat->rnti);
+         GET_UE_ID(ulData->rnti, cLchUlDat->rnti);
          cLchUlDat->lcId   = ulData->pduInfo[idx].lcId;
 
          /* Copy fixed buffer to message */
          if(ODU_GET_MSG_BUF(RLC_MEM_REGION_UL, RLC_POOL, &cLchUlDat->pdu) != ROK)
          {
             DU_LOG("\nERROR  -->  RLC : Memory allocation failed at RlcProcUlData");
-	    RLC_SHRABL_STATIC_BUF_FREE(RLC_MEM_REGION_UL, RLC_POOL, cLchUlDat, \
-	       sizeof(RguCDatIndInfo));
+            RLC_SHRABL_STATIC_BUF_FREE(RLC_MEM_REGION_UL, RLC_POOL, cLchUlDat, \
+                  sizeof(RguCDatIndInfo));
             ret = RFAILED;
-	    break;
+            break;
          }
          oduCpyFixBufToMsg(ulData->pduInfo[idx].pduBuf, cLchUlDat->pdu, \
-	    ulData->pduInfo[idx].pduLen);
+               ulData->pduInfo[idx].pduLen);
 
          rlcProcCommLcUlData(pst, 0, cLchUlDat);
       }
@@ -452,34 +513,34 @@ uint8_t RlcProcUlData(Pst *pst, RlcData *ulData)
          if(!dLchPduPres)
          {
             RLC_SHRABL_STATIC_BUF_ALLOC(RLC_MEM_REGION_UL, RLC_POOL, dLchUlDat, \
-	       sizeof(RguDDatIndInfo));
-	    if(!dLchUlDat)
-	    {
-	       DU_LOG("\nERROR  -->  RLC : Memory allocation failed at RlcMacProcUlData");
-	       ret = RFAILED;
-	       break;
-	    }
+                  sizeof(RguDDatIndInfo));
+            if(!dLchUlDat)
+            {
+               DU_LOG("\nERROR  -->  RLC : Memory allocation failed at RlcMacProcUlData");
+               ret = RFAILED;
+               break;
+            }
             dLchPduPres = TRUE;
          }
 
-	 /* Copy fixed buffer to message */
-	 lcId = ulData->pduInfo[idx].lcId;
-	 if(ODU_GET_MSG_BUF(RLC_MEM_REGION_UL, RLC_POOL, \
-		  &dLchData[lcId].pdu.mBuf[dLchData[lcId].pdu.numPdu]) != ROK)
-	 {
-	    DU_LOG("\nERROR  -->  RLC : Memory allocation failed at RlcMacProcUlData");
-	    for(pduIdx=0; pduIdx < dLchData[lcId].pdu.numPdu; pduIdx++)
-	    {
-	       ODU_PUT_MSG_BUF(dLchData[lcId].pdu.mBuf[dLchData[lcId].pdu.numPdu]);
-	    }
-	    RLC_SHRABL_STATIC_BUF_FREE(RLC_MEM_REGION_UL, RLC_POOL, dLchUlDat, \
-	       sizeof(RguDDatIndInfo));
-	    ret = RFAILED;
-	    break;
-	 }
-	 oduCpyFixBufToMsg(ulData->pduInfo[idx].pduBuf, \
-	       dLchData[lcId].pdu.mBuf[dLchData[lcId].pdu.numPdu],\
-	       ulData->pduInfo[idx].pduLen);
+         /* Copy fixed buffer to message */
+         lcId = ulData->pduInfo[idx].lcId;
+         if(ODU_GET_MSG_BUF(RLC_MEM_REGION_UL, RLC_POOL, \
+                  &dLchData[lcId].pdu.mBuf[dLchData[lcId].pdu.numPdu]) != ROK)
+         {
+            DU_LOG("\nERROR  -->  RLC : Memory allocation failed at RlcMacProcUlData");
+            for(pduIdx=0; pduIdx < dLchData[lcId].pdu.numPdu; pduIdx++)
+            {
+               ODU_PUT_MSG_BUF(dLchData[lcId].pdu.mBuf[dLchData[lcId].pdu.numPdu]);
+            }
+            RLC_SHRABL_STATIC_BUF_FREE(RLC_MEM_REGION_UL, RLC_POOL, dLchUlDat, \
+                  sizeof(RguDDatIndInfo));
+            ret = RFAILED;
+            break;
+         }
+         oduCpyFixBufToMsg(ulData->pduInfo[idx].pduBuf, \
+               dLchData[lcId].pdu.mBuf[dLchData[lcId].pdu.numPdu],\
+               ulData->pduInfo[idx].pduLen);
 
          dLchData[lcId].pdu.numPdu++;
       }
@@ -491,26 +552,26 @@ uint8_t RlcProcUlData(Pst *pst, RlcData *ulData)
    {
       if(dLchPduPres)
       {
-	 dLchUlDat->cellId = ulData->cellId;
-	 GET_UE_IDX(ulData->rnti, dLchUlDat->rnti);
+         dLchUlDat->cellId = ulData->cellId;
+         GET_UE_ID(ulData->rnti, dLchUlDat->rnti);
 
-	 for(idx = 0; idx < MAX_NUM_LC; idx++)
-	 {
-	    if(dLchData[idx].pdu.numPdu)
-	    {
-	       memcpy(&dLchUlDat->lchData[numDLch], &dLchData[idx], sizeof(RguLchDatInd));
-	       numDLch++;
-	    }
-	 }
-	 dLchUlDat->numLch = numDLch;
-	 rlcProcDedLcUlData(pst, 0, dLchUlDat);
+         for(idx = 0; idx < MAX_NUM_LC; idx++)
+         {
+            if(dLchData[idx].pdu.numPdu)
+            {
+               memcpy(&dLchUlDat->lchData[numDLch], &dLchData[idx], sizeof(RguLchDatInd));
+               numDLch++;
+            }
+         }
+         dLchUlDat->numLch = numDLch;
+         rlcProcDedLcUlData(pst, 0, dLchUlDat);
       }
    }
 
    for(pduIdx = 0; pduIdx < ulData->numPdu; pduIdx++)
    {
       RLC_FREE_SHRABL_BUF(pst->region, pst->pool, ulData->pduInfo[pduIdx].pduBuf, \
-         ulData->pduInfo[pduIdx].pduLen);
+            ulData->pduInfo[pduIdx].pduLen);
    }
    RLC_FREE_SHRABL_BUF(pst->region, pst->pool, ulData, sizeof(RlcData));
    return ROK;
@@ -643,8 +704,10 @@ uint8_t RlcProcUeReconfigReq(Pst *pst, RlcUeCfg *ueCfg)
    uint8_t ret = ROK;
    RlcCfgInfo *rlcUeCfg = NULLP; //Seed code Rlc cfg struct
    RlcCb *rlcUeCb = NULLP;
-    
-   DU_LOG("\nDEBUG  -->  RLC: UE reconfig request received. CellID[%d] UEIDX[%d]",ueCfg->cellId, ueCfg->ueIdx);
+   RlcCfgCfmInfo *cfgRsp; 
+   Pst rspPst;
+
+   DU_LOG("\nDEBUG  -->  RLC: UE reconfig request received. CellID[%d] UEID[%d]",ueCfg->cellId, ueCfg->ueId);
 
    rlcUeCb = RLC_GET_RLCCB(pst->dstInst);
    RLC_ALLOC(rlcUeCb, rlcUeCfg, sizeof(RlcCfgInfo));
@@ -656,10 +719,21 @@ uint8_t RlcProcUeReconfigReq(Pst *pst, RlcUeCfg *ueCfg)
    else
    {
       memset(rlcUeCfg, 0, sizeof(RlcCfgInfo));
-      fillRlcCfg(rlcUeCfg, ueCfg);
-      ret = RlcProcCfgReq(pst, rlcUeCfg);
+      ret = fillRlcCfg(rlcUeCb, rlcUeCfg, ueCfg);
       if(ret != ROK)
-         DU_LOG("\nERROR  -->  RLC: Failed to configure Add/Mod/Del entities at RlcProcUeReconfigReq()");
+      {
+         DU_LOG("\nERROR  -->  RLC: Failed to fill configuration at RlcProcUeReconfigReq()");
+         FILL_PST_RLC_TO_DUAPP(rspPst, RLC_UL_INST, EVENT_RLC_UE_RECONFIG_RSP);
+         memset(cfgRsp, 0, sizeof(RlcCfgCfmInfo));
+         fillRlcCfgFailureRsp(cfgRsp, ueCfg);
+         SendRlcUeCfgRspToDu(&rspPst, cfgRsp);
+      }
+      else
+      {
+         ret = RlcProcCfgReq(pst, rlcUeCfg);
+         if(ret != ROK)
+            DU_LOG("\nERROR  -->  RLC: Failed to configure Add/Mod/Del entities at RlcProcUeReconfigReq()");
+      }
    }
    
    RLC_FREE_SHRABL_BUF(pst->region, pst->pool, ueCfg, sizeof(RlcUeCfg));
@@ -703,7 +777,7 @@ uint8_t RlcProcDlUserDataTransfer(Pst *pst, RlcDlUserDataInfo *dlDataMsgInfo)
 
    datReqInfo->rlcId.rbType = RB_TYPE_DRB;
    datReqInfo->rlcId.rbId   = dlDataMsgInfo->rbId;
-   datReqInfo->rlcId.ueId   = dlDataMsgInfo->ueIdx;
+   datReqInfo->rlcId.ueId   = dlDataMsgInfo->ueId;
    datReqInfo->rlcId.cellId = dlDataMsgInfo->cellId;
    datReqInfo->lcType       = LCH_DTCH;
    datReqInfo->sduId        = ++(rlcCb[pst->dstInst]->dlSduId);
@@ -730,7 +804,7 @@ uint8_t RlcProcDlUserDataTransfer(Pst *pst, RlcDlUserDataInfo *dlDataMsgInfo)
  *    Functionality:
  *      sending UE delete response to DU 
  *
- * @params[in] uint8_t cellId, uint8_t ueIdx, UeDeleteResult result 
+ * @params[in] uint8_t cellId, uint8_t ueId, UeDeleteResult result 
  *
  * @return ROK     - success
  *         RFAILED - failure
@@ -838,6 +912,169 @@ uint8_t RlcProcUeDeleteReq(Pst *pst, RlcUeDelete *ueDelete)
    return ret;
 }
 
+/*******************************************************************
+*
+* @brief Send the Slice Metrics to  DU APP
+*
+* @details
+*
+*    Function : sendSlicePmToDu
+*
+*    Functionality:
+*      Handles the sending of Slice Metrics to  DU APP
+*
+* @params[in] Post structure pointer
+*             SlicePmList *sliceStats pointer
+*
+* @return ROK     - success
+*         RFAILED - failure
+*
+* ****************************************************************/
+uint8_t sendSlicePmToDu(SlicePmList *sliceStats)
+{
+   Pst pst;  
+   
+   FILL_PST_RLC_TO_DUAPP(pst, RLC_UL_INST, EVENT_RLC_SLICE_PM_TO_DU);
+
+   if(!sliceStats)
+   {
+      DU_LOG("\nERROR  -->  RLC: sendSlicePmToDu(): Memory allocation failed ");
+      return RFAILED;
+   }
+   else
+   {
+      if(rlcSendSlicePmToDu(&pst, sliceStats) == ROK)
+      {
+         DU_LOG("\nDEBUG  -->  RLC: Slice PM send successfully");
+      }
+      else
+      {
+         DU_LOG("\nERROR  -->  RLC: sendSlicePmToDu():Failed to send Slice PM to DU");
+         RLC_FREE_SHRABL_BUF(pst.region, pst.pool, sliceStats, sizeof(SlicePmList));
+         return RFAILED;
+      }
+   }
+   return ROK;
+}
+
+/**
+ * @brief 
+ *    Handler for searching the Slice Entry in Slice Metrics structure
+ *
+ * @details
+ *    This func finds the slice entry in the SliceMetric record structure and
+ *    return the index of the slice sot hat Tput entries can be done
+ *
+ * @param[in] snssaiVal : Snssai Val to be searched
+ *            *snssaiIdx : O/P : Index of the Slice in Slice Metrics record
+ *            sliceStats : Pointer of Slice metrics record list
+ *
+ * @return bool: True: If slice found in the record
+ *               False: If Slice not found; thus parent function will create the
+ *               recpord of this snssai
+ *   
+ */
+bool rlcFindSliceEntry(SliceIdentifier snssaiVal, uint8_t *snssaiIdx, SlicePmList *sliceStats)
+{
+   uint8_t cntSlices = sliceStats->numSlice;
+
+   for(*snssaiIdx = 0;(*snssaiIdx) < cntSlices; (*snssaiIdx)++)
+   {
+      if((snssaiVal.sst == sliceStats->sliceRecord[*snssaiIdx].networkSliceIdentifier.sst)&&
+            (snssaiVal.sd == sliceStats->sliceRecord[*snssaiIdx].networkSliceIdentifier.sd))
+      {
+         return TRUE;
+      }
+   }
+   return FALSE;
+}
+
+
+/*******************************************************************
+*
+* @brief Builds the Slice Performance Metrics structure to be sent to DU
+*
+* @details
+*
+*    Function : BuildSliceReportToDu
+*
+*    Functionality:
+*      Builds the Slice Performance Metrics structure to be sent to DU
+*
+* @params[in] uint8_t snssaiCnt
+*             
+* @return ROK     - success
+*         RFAILED - failure
+*
+* ****************************************************************/
+uint8_t BuildSliceReportToDu(uint8_t snssaiCnt)
+{
+   CmLList  *node = NULLP;
+   RlcTptPerSnssai *snssaiNode = NULLP;
+   Direction dir = DIR_UL;
+   SlicePmList *sliceStats = NULLP;   /*Slice metric */
+   SliceIdentifier snssaiVal ;
+   uint8_t snssaiIdx = 0;
+
+   if(snssaiCnt == 0)
+   {
+      DU_LOG("\nERROR  -->  RLC: No SNSSAI to send the SLice PM");
+      return RFAILED;
+   }
+
+   RLC_ALLOC_SHRABL_BUF(RLC_MEM_REGION_UL, RLC_POOL, sliceStats, sizeof(SlicePmList));
+   if(sliceStats == NULLP)
+   {
+      DU_LOG("\nERROR  -->  RLC: Memory Allocation Failed");
+      return RFAILED;
+   }
+   RLC_ALLOC_SHRABL_BUF(RLC_MEM_REGION_UL, RLC_POOL, sliceStats->sliceRecord, snssaiCnt * (sizeof(SlicePm)));
+
+   if(sliceStats->sliceRecord == NULLP)
+   {
+      DU_LOG("\nERROR  -->  RLC: Memory Allocation Failed");
+      RLC_FREE_SHRABL_BUF(RLC_MEM_REGION_UL, RLC_POOL, sliceStats, sizeof(SlicePmList));
+      return RFAILED;
+   }
+   while(dir < DIR_BOTH)
+   {
+      node = arrTputPerSnssai[dir]->first;
+      if(node == NULLP)
+      {
+         DU_LOG("\nERROR  -->  RLC: No SNSSAI in list");
+         RLC_FREE_SHRABL_BUF(RLC_MEM_REGION_UL, RLC_POOL, sliceStats, sizeof(SlicePmList));
+         RLC_FREE_SHRABL_BUF(RLC_MEM_REGION_UL, RLC_POOL, sliceStats->sliceRecord, (snssaiCnt * (sizeof(SlicePm))));
+         return RFAILED;
+      }
+
+      while(node)
+      {
+         snssaiIdx = 0;
+         snssaiNode = (RlcTptPerSnssai *)node->node;
+
+         snssaiVal.sst = snssaiNode->snssai->sst;
+         snssaiVal.sd = snssaiNode->snssai->sd[2]+snssaiNode->snssai->sd[1]*10+snssaiNode->snssai->sd[0]*100;
+         if(rlcFindSliceEntry(snssaiVal, &snssaiIdx, sliceStats) == FALSE)
+         {
+            sliceStats->sliceRecord[snssaiIdx].networkSliceIdentifier = snssaiVal;
+            sliceStats->numSlice++;
+         }
+         if(dir == DIR_UL)
+         {
+            sliceStats->sliceRecord[snssaiIdx].ThpUl = snssaiNode->tpt;
+         }
+         else
+         {
+            sliceStats->sliceRecord[snssaiIdx].ThpDl = snssaiNode->tpt;
+         }
+         node = node->next;
+      }
+      dir++;
+   }
+
+   sendSlicePmToDu(sliceStats);
+   return ROK;
+}
 /**********************************************************************
          End of file
 **********************************************************************/

@@ -324,7 +324,7 @@ S16 sctpNtfyHdlr(CmInetSctpNotification *ntfy)
          switch(ntfy->u.assocChange.state)
          {
             case CM_INET_SCTP_COMM_UP:
-               DU_LOG("DEBUG  -->  Event : COMMUNICATION UP");
+               DU_LOG("\nDEBUG  -->  Event : COMMUNICATION UP in cu");
                connUp = TRUE;
                break;
             case CM_INET_SCTP_COMM_LOST:
@@ -404,6 +404,7 @@ S16 sctpSockPoll()
    CmInetAddr    egtpFromAddr;
    CmInetMemInfo memInfo;
    sctpSockPollParams f1PollParams;
+   uint64_t      numMsgRcvd = 0;
 
    memset(&f1PollParams, 0, sizeof(sctpSockPollParams));
     
@@ -438,8 +439,9 @@ S16 sctpSockPoll()
       ret = cmInetRecvMsg(&(egtpCb.recvTptSrvr.sockFd), &egtpFromAddr, &memInfo, &egtpBuf, &egtpBufLen, CM_INET_NO_FLAG);
       if(ret == ROK && egtpBuf != NULLP)
       {
-         DU_LOG("\nINFO  -->  EGTP : Received message \n");
-         ODU_PRINT_MSG(egtpBuf, 0 ,0);
+         DU_LOG("\nINFO  -->  EGTP : Received UL Message [%ld]\n", numMsgRcvd+1);
+         numMsgRcvd++;
+         //ODU_PRINT_MSG(egtpBuf, 0 ,0);
          cuEgtpHdlRecvMsg(egtpBuf);
 
       }
@@ -469,7 +471,6 @@ S16 sctpSockPoll()
  *         RFAILED - failure
  *
  * ****************************************************************/
-
 S16 processPolling(sctpSockPollParams *pollParams, CmInetFd *sockFd, uint32_t *timeoutPtr, CmInetMemInfo *memInfo)
 {
    uint16_t ret = ROK;

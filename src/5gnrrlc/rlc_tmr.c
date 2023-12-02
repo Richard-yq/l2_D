@@ -85,6 +85,7 @@
 /* private function declarations */
 static Void rlcBndTmrExpiry(PTR cb);
 
+
 /**
  * @brief Handler to start timer
  *       
@@ -177,11 +178,11 @@ void rlcStartTmr(RlcCb *gCb, PTR cb, int16_t tmrEvnt)
          break;
       }
 #endif
-      case EVENT_RLC_THROUGHPUT_TMR:
+      case EVENT_RLC_UE_THROUGHPUT_TMR:
       {
          RlcThpt *thptCb = (RlcThpt *)cb;
-         RLC_TMR_CALCUATE_WAIT(arg.wait, ODU_THROUGHPUT_PRINT_TIME_INTERVAL, gCb->genCfg.timeRes);
-         arg.timers = &thptCb->thptTmr;
+         RLC_TMR_CALCUATE_WAIT(arg.wait, ODU_UE_THROUGHPUT_PRINT_TIME_INTERVAL, gCb->genCfg.timeRes);
+         arg.timers = &thptCb->ueTputInfo.ueThptTmr;
          arg.max = RLC_MAX_THPT_TMR; 
          break;
       }
@@ -191,6 +192,14 @@ void rlcStartTmr(RlcCb *gCb, PTR cb, int16_t tmrEvnt)
          RLC_TMR_CALCUATE_WAIT(arg.wait, RLC_UE_DELETE_WAIT_TIME, gCb->genCfg.timeRes);
          arg.timers = &ulUeCb->ueDeleteInfo.ueDelTmr;
          arg.max = RLC_MAX_UE_TMR;
+         break;
+      }
+      case EVENT_RLC_SNSSAI_THROUGHPUT_TMR:
+      {
+         RlcThpt *thptCb = (RlcThpt *)cb;
+         RLC_TMR_CALCUATE_WAIT(arg.wait, ODU_SNSSAI_THROUGHPUT_PRINT_TIME_INTERVAL, gCb->genCfg.timeRes);
+         arg.timers = &thptCb->snssaiTputInfo.snssaiThptTmr;
+         arg.max = RLC_MAX_THPT_TMR; 
          break;
       }
       default:
@@ -275,19 +284,28 @@ void rlcStopTmr(RlcCb *gCb, PTR cb, uint8_t tmrType)
          break;
       }
 #endif
-      case EVENT_RLC_THROUGHPUT_TMR:
+      case EVENT_RLC_UE_THROUGHPUT_TMR:
       {
-         arg.timers   = &((RlcThpt *)cb)->thptTmr;
+         arg.timers   = &((RlcThpt *)cb)->ueTputInfo.ueThptTmr;
          arg.max  = RLC_MAX_THPT_TMR;
+         break;
       }
       case EVENT_RLC_UE_DELETE_TMR:
       {
          arg.timers   = &((RlcUlUeCb*)cb)->ueDeleteInfo.ueDelTmr;
          arg.max  = EVENT_RLC_UE_DELETE_TMR;
+         break;
+      }
+      case EVENT_RLC_SNSSAI_THROUGHPUT_TMR:
+      {
+         arg.timers   = &((RlcThpt *)cb)->snssaiTputInfo.snssaiThptTmr;
+         arg.max  = RLC_MAX_THPT_TMR;
+         break;
       }
       default:
       {
          DU_LOG("\nERROR  -->  RLC : rlcStopTmr: Invalid tmr Evnt[%d]", tmrType);
+         break;
       }
    } 
    if (tmrType != TMR0)
@@ -358,14 +376,19 @@ Void rlcTmrExpiry(PTR cb,S16 tmrEvnt)
          rlcBndTmrExpiry(cb);
          break;
       }
-      case EVENT_RLC_THROUGHPUT_TMR:
+      case EVENT_RLC_UE_THROUGHPUT_TMR:
       {
-         rlcThptTmrExpiry(cb);
+         rlcUeThptTmrExpiry(cb);
          break;
       }
       case EVENT_RLC_UE_DELETE_TMR:
       {
          rlcUeDeleteTmrExpiry(cb);
+         break;
+      }
+      case EVENT_RLC_SNSSAI_THROUGHPUT_TMR:
+      {
+         rlcSnssaiThptTmrExpiry(cb);
          break;
       }
       default:
@@ -417,13 +440,17 @@ bool rlcChkTmr(RlcCb *gCb, PTR cb, int16_t tmrEvnt)
       {
          return (((RlcRguSapCb *)cb)->bndTmr.tmrEvnt == EVENT_RLC_WAIT_BNDCFM);
       }
-      case EVENT_RLC_THROUGHPUT_TMR:
+      case EVENT_RLC_UE_THROUGHPUT_TMR:
       {
-         return (((RlcThpt *)cb)->thptTmr.tmrEvnt == EVENT_RLC_THROUGHPUT_TMR);
+         return (((RlcThpt *)cb)->ueTputInfo.ueThptTmr.tmrEvnt == EVENT_RLC_UE_THROUGHPUT_TMR);
       }
       case EVENT_RLC_UE_DELETE_TMR:
       {
          return (((RlcUlUeCb *)cb)->ueDeleteInfo.ueDelTmr.tmrEvnt == EVENT_RLC_UE_DELETE_TMR);
+      }
+      case EVENT_RLC_SNSSAI_THROUGHPUT_TMR:
+      {
+         return (((RlcThpt *)cb)->snssaiTputInfo.snssaiThptTmr.tmrEvnt == EVENT_RLC_SNSSAI_THROUGHPUT_TMR);
       }
       default:
       {
@@ -494,16 +521,16 @@ static Void rlcBndTmrExpiry(PTR cb)
 }
 
 /**
- * @brief Handler to do processing on expiry of the throughput timer
+ * @brief Handler to do processing on expiry of UE throughput timer
  *
  * @details
- *    This function processes the RLC throughput timer expiry.
+ *    This function processes the RLC UE throughput timer expiry.
  *
  * @param[in] cb  Pointer to the RLC throughput struct
  *
  * @return  Void
  */
-void rlcThptTmrExpiry(PTR cb)
+void rlcUeThptTmrExpiry(PTR cb)
 {
    uint16_t  ueIdx;
    long double tpt;
@@ -513,18 +540,18 @@ void rlcThptTmrExpiry(PTR cb)
    if(gCellStatus != CELL_UP)
    {
       /* Restart timer */
-      rlcStartTmr(RLC_GET_RLCCB(rlcThptCb->inst), (PTR)rlcThptCb, EVENT_RLC_THROUGHPUT_TMR);
+      rlcStartTmr(RLC_GET_RLCCB(rlcThptCb->inst), (PTR)(rlcThptCb), EVENT_RLC_UE_THROUGHPUT_TMR);
       return;
    }
 
    /* If cell is up, print throughout for each UE attached to the cell */
-   DU_LOG("\n===================== DL Throughput ==============================");
-   DU_LOG("\nNumber of UEs : %d", rlcThptCb->numActvUe);
-   if(rlcThptCb->numActvUe)
+   //DU_LOG("\n===================== DL Throughput Per UE==============================");
+   //DU_LOG("\nNumber of UEs : %d", rlcThptCb->ueTputInfo.numActvUe);
+   if(rlcThptCb->ueTputInfo.numActvUe)
    {
       for(ueIdx = 0; ueIdx < MAX_NUM_UE; ueIdx++)
       {
-         if(rlcThptCb->thptPerUe[ueIdx].ueId)
+         if(rlcThptCb->ueTputInfo.thptPerUe[ueIdx].ueId)
          {
             /* Spec 28.552, section 5.1.1.3 : 
              * Throughput in kilobits/sec = (dataVol in kiloBits * 1000)/time in milligseconds
@@ -532,21 +559,69 @@ void rlcThptTmrExpiry(PTR cb)
              * Since our dataVol is in bytes, multiplying 0.008 to covert into kilobits i.e. 
              * Throughput[kbits/sec] = (dataVol * 0.008 * 1000)/time in ms
              */
-             tpt = (double)(rlcThptCb->thptPerUe[ueIdx].dataVol * 8)/(double)ODU_THROUGHPUT_PRINT_TIME_INTERVAL;
+             tpt = (double)(rlcThptCb->ueTputInfo.thptPerUe[ueIdx].dataVol * 8)/(double)ODU_UE_THROUGHPUT_PRINT_TIME_INTERVAL;
       
-             DU_LOG("\nUE Id : %d   DL Tpt : %.2Lf", rlcThptCb->thptPerUe[ueIdx].ueId, tpt);
-             rlcThptCb->thptPerUe[ueIdx].dataVol = 0;
+             DU_LOG("\nUE Id : %d   DL Tpt : %.2Lf", rlcThptCb->ueTputInfo.thptPerUe[ueIdx].ueId, tpt);
+             rlcThptCb->ueTputInfo.thptPerUe[ueIdx].dataVol = 0;
          }
       }
    }
-   DU_LOG("\n==================================================================");
+   //DU_LOG("\n==================================================================");
 
    /* Restart timer */
-   rlcStartTmr(RLC_GET_RLCCB(rlcThptCb->inst), (PTR)rlcThptCb, EVENT_RLC_THROUGHPUT_TMR);
+   rlcStartTmr(RLC_GET_RLCCB(rlcThptCb->inst), (PTR)rlcThptCb, EVENT_RLC_UE_THROUGHPUT_TMR);
 
    return;
 }
 
+/**
+ * @brief Handler to do processing on expiry of the SNSSAI throughput timer
+ *
+ * @details
+ *    This function processes the RLC SNSSAI throughput timer expiry.
+ *
+ * @param[in] cb  Pointer to the RLC throughput struct
+ *
+ * @return  Void
+ */
+void rlcSnssaiThptTmrExpiry(PTR cb)
+{
+   RlcThpt *rlcThptCb = (RlcThpt*)cb; 
+   
+   static uint8_t snssaiCntDl = 0, snssaiCntUl = 0;
+   /*Bit map to keep record of reception of DL and UL Snssai Tput expiry*/
+   static uint8_t snssaiTputBitmap = DIR_NONE;
+
+   /* If cell is not up, throughput details cannot be printed */
+   if(gCellStatus != CELL_UP)
+   {
+      /* Restart timer */
+      rlcStartTmr(RLC_GET_RLCCB(rlcThptCb->inst), (PTR)(rlcThptCb), EVENT_RLC_SNSSAI_THROUGHPUT_TMR);
+      return;
+   }
+   
+   if(rlcThptCb->snssaiTputInfo.dlTputPerSnssaiList != NULLP)
+   {
+      snssaiCntDl = rlcCalculateTputPerSnssai(rlcThptCb->snssaiTputInfo.dlTputPerSnssaiList, DIR_DL);
+      snssaiTputBitmap |= DIR_DL;
+      arrTputPerSnssai[DIR_DL] = rlcThptCb->snssaiTputInfo.dlTputPerSnssaiList;
+   }
+   if(rlcThptCb->snssaiTputInfo.ulTputPerSnssaiList != NULLP)
+   {
+      snssaiCntUl = rlcCalculateTputPerSnssai(rlcThptCb->snssaiTputInfo.ulTputPerSnssaiList, DIR_UL);
+      snssaiTputBitmap |= DIR_UL;
+      arrTputPerSnssai[DIR_UL] = rlcThptCb->snssaiTputInfo.ulTputPerSnssaiList;
+   }
+   if(snssaiTputBitmap == DIR_BOTH)
+   {
+      //call the function
+      BuildSliceReportToDu(MAX(snssaiCntUl, snssaiCntDl));
+      snssaiTputBitmap = DIR_NONE;
+   }
+   /* Restart timer */
+   rlcStartTmr(RLC_GET_RLCCB(rlcThptCb->inst), (PTR)rlcThptCb, EVENT_RLC_SNSSAI_THROUGHPUT_TMR);
+   return;
+}
 /**
 *
 * @brief filling RLC UE delete configuration

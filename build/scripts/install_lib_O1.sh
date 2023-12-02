@@ -97,8 +97,8 @@ install_netconf_lib() {
 
    #1. libssh
    cd $NETCONF_PATH && \
-      git clone -b v0-7 --depth 1 http://git.libssh.org/projects/libssh.git && \
-      cd libssh; mkdir build; cd build && \
+      git clone -c http.sslverify=false -b v0-7 --depth 1 https://git.libssh.org/projects/libssh.git && \
+      cd libssh;mv .git .git_legacy; mkdir build; cd build && \
       cmake .. && \
       make && \
       $SUDO make install
@@ -108,7 +108,7 @@ install_netconf_lib() {
    #cJSON
    cd $NETCONF_PATH && \
       git clone --single-branch --branch v1.7.14 https://github.com/DaveGamble/cJSON.git && \
-      cd cJSON && \
+      cd cJSON;mv .git .git_legacy && \
       mkdir build && cd build && \
       cmake .. -DENABLE_CJSON_UTILS=On -DENABLE_CJSON_TEST=Off && \
       make -j4 && \
@@ -119,7 +119,7 @@ install_netconf_lib() {
    #CURL
    cd $NETCONF_PATH && \
       git clone --single-branch --branch curl-7_72_0 https://github.com/curl/curl.git &&\
-      cd curl && \
+      cd curl;mv .git .git_legacy && \
       mkdir build && cd build && \
       cmake -DBUILD_TESTING=OFF .. && \
       make -j4 && \
@@ -130,7 +130,7 @@ install_netconf_lib() {
    # libyang
    cd $NETCONF_PATH && \
       git clone -b v1.0.184 --depth 1 https://github.com/CESNET/libyang.git && \
-      cd libyang && mkdir build && cd build && \
+      cd libyang;mv .git .git_legacy && mkdir build && cd build && \
       cmake -DGEN_LANGUAGE_BINDINGS=ON -DGEN_PYTHON_BINDINGS=OFF \
             -DCMAKE_BUILD_TYPE:String="Debug" -DENABLE_BUILD_TESTS=OFF .. && \
       make -j2 && \
@@ -142,7 +142,7 @@ install_netconf_lib() {
    # sysrepo
    cd $NETCONF_PATH && \
       git clone -b v1.4.70 --depth 1  https://github.com/sysrepo/sysrepo.git && \
-      cd sysrepo && sed -i -e 's/2000/30000/g;s/5000/30000/g' src/common.h.in && \
+      cd sysrepo;mv .git .git_legacy && sed -i -e 's/2000/30000/g;s/5000/30000/g' src/common.h.in && \
       mkdir build && cd build && \
       cmake -DGEN_LANGUAGE_BINDINGS=ON -DGEN_PYTHON_BINDINGS=OFF \
             -DCMAKE_BUILD_TYPE:String="Debug" -DENABLE_TESTS=OFF \
@@ -156,7 +156,7 @@ install_netconf_lib() {
    # libnetconf2
    cd $NETCONF_PATH && \
       git clone -b v1.1.36 --depth 1 https://github.com/CESNET/libnetconf2.git && \
-      cd libnetconf2 && mkdir build && cd build && \
+      cd libnetconf2;mv .git .git_legacy && mkdir build && cd build && \
       cmake -DCMAKE_BUILD_TYPE:String="Debug" -DENABLE_BUILD_TESTS=OFF .. && \
       make -j2 && \
       $SUDO make install && \
@@ -167,7 +167,7 @@ install_netconf_lib() {
    # netopeer2
    cd $NETCONF_PATH && \
       git clone -b v1.1.53 --depth 1 https://github.com/CESNET/Netopeer2.git && \
-      cd Netopeer2 && mkdir build && cd build && \
+      cd Netopeer2;mv .git .git_legacy && mkdir build && cd build && \
       cmake -DCMAKE_BUILD_TYPE:String="Debug" -DNP2SRV_DATA_CHANGE_TIMEOUT=30000 \
             -DNP2SRV_DATA_CHANGE_WAIT=OFF .. && \
       make -j2 && \

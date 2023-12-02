@@ -33,6 +33,7 @@
 #define EVENT_UL_USER_DATA_TRANS_TO_DU 219
 #define EVENT_RLC_UE_DELETE_REQ 220
 #define EVENT_RLC_UE_DELETE_RSP 221
+#define EVENT_RLC_SLICE_PM_TO_DU 222
 
 #define RB_ID_SRB 0
 #define RB_ID_DRB 1
@@ -117,8 +118,8 @@ typedef enum
 
 typedef enum
 {
-   RLC_DU_APP_RSP_NOK,
-   RLC_DU_APP_RSP_OK
+   RLC_DU_APP_RSP_OK = 1,
+   RLC_DU_APP_RSP_NOK
 }RlcRsp;
 
 typedef struct ulAmCfg
@@ -182,6 +183,7 @@ typedef struct rlcBearerCfg
    uint8_t      rbType;
    uint8_t      lcId;
    uint8_t      lcType;
+   Snssai       *snssai; 
    RlcMode      rlcMode;
    union
    {
@@ -195,7 +197,7 @@ typedef struct rlcBearerCfg
 typedef struct rlcUeCfg
 {
    uint16_t     cellId;
-   uint8_t      ueIdx;
+   uint8_t      ueId;
    uint8_t      numLcs;
    RlcBearerCfg rlcLcCfg[MAX_NUM_LC];
    UeCfgState rlcUeCfgState; /* InActive / Completed */
@@ -204,7 +206,7 @@ typedef struct rlcUeCfg
 typedef struct rlcUeCfgRsp
 {
    uint16_t       cellId;
-   uint16_t       ueIdx;
+   uint16_t       ueId;
    RlcRsp         result;
    FailureReason  reason;
 }RlcUeCfgRsp;
@@ -226,7 +228,7 @@ typedef struct rlcUeDeleteRsp
 typedef struct ulRrcMsgInfo
 {
    uint16_t   cellId;       /* Cell Id */
-   uint16_t   ueIdx;        /* UE Index */
+   uint16_t   ueId;         /* UE Id */
    uint8_t    lcId;         /* Logical channel Id */
    uint16_t   msgLen;       /* RRC message length (in bytes) */
    uint8_t    *rrcMsg;      /* RRC Message (UL-DCCH Message) */
@@ -236,7 +238,7 @@ typedef struct ulRrcMsgInfo
 typedef struct ulUserDatInfo
 {
    uint16_t   cellId;       /* Cell Id */
-   uint16_t   ueIdx;        /* UE Index */
+   uint16_t   ueId;         /* UE Id */
    uint8_t    rbId;
    uint16_t   msgLen;       /* User data length (in bytes) */
    uint8_t    *userData;    /* User data (UL-DTCH Message) */
@@ -246,7 +248,7 @@ typedef struct ulUserDatInfo
 typedef struct dlRrcMsgInfo
 {
    uint16_t   cellId;         /* Cell Id */
-   uint16_t   ueIdx;          /* UE index */
+   uint16_t   ueId;           /* UE Id */
    uint8_t    rbType;         /* Radio Bearer Type */
    uint8_t    rbId;           /* Radio Bearer Id */
    uint8_t    lcType;         /* Logical channel type */
@@ -272,10 +274,30 @@ typedef struct rrcDeliveryStatus
    uint16_t  triggeringMessage;
 }RrcDeliveryStatus;
 
+typedef struct
+{
+  uint32_t sd:24;
+  uint8_t sst;
+}SliceIdentifier;
+
+/*Pm Metric for NW Slicing from RLC to DUAPP*/
+typedef struct slicePm
+{
+  SliceIdentifier networkSliceIdentifier;
+  double ThpDl;
+  double ThpUl;
+}SlicePm;
+
+typedef struct slicePmList
+{
+   uint8_t numSlice;
+   SlicePm *sliceRecord;
+}SlicePmList;
+
 typedef struct rrcDeliveryReportInfo
 {
    uint16_t  cellId;
-   uint16_t  ueIdx;
+   uint16_t  ueId;
    uint8_t   srbId;
    RrcDeliveryStatus  rrcDeliveryStatus;
 }RrcDeliveryReport;
@@ -284,7 +306,7 @@ typedef struct rrcDeliveryReportInfo
 typedef struct dlDataMsgInfo
 {
    uint16_t   cellId;         /* Cell Id */
-   uint16_t   ueIdx;          /* UE index */
+   uint16_t   ueId;           /* UE Id */
    uint8_t    rbId;           /* Radio Bearer Id */
    uint16_t   msgLen;         /* Message length */
    Buffer     *dlMsg;         /* DL Data */
@@ -346,6 +368,11 @@ typedef uint8_t (*DuRlcDlUserDataToRlcFunc) ARGS((
    Pst           *pst,
    RlcDlUserDataInfo *dlDataMsg));
 
+/* Slice Metrics from RLC to DU APP */
+typedef uint8_t (*RlcSlicePmToDuFunc) ARGS((
+   Pst           *pst,
+   SlicePmList *sliceStats));
+
 /* Pack/Unpack function declarations */
 uint8_t packDuRlcUeCreateReq(Pst *pst, RlcUeCfg *ueCfg);
 uint8_t unpackRlcUeCreateReq(DuRlcUeCreateReq func, Pst *pst, Buffer *mBuf);
@@ -369,6 +396,8 @@ uint8_t packDuRlcUeDeleteReq(Pst *pst, RlcUeDelete *ueDelete);
 uint8_t unpackRlcUeDeleteReq(DuRlcUeDeleteReq func, Pst *pst, Buffer *mBuf);
 uint8_t packRlcDuUeDeleteRsp(Pst *pst, RlcUeDeleteRsp *ueDeleteRsp);
 uint8_t unpackRlcUeDeleteRsp(RlcDuUeDeleteRsp func, Pst *pst, Buffer *mBuf);
+uint8_t packRlcDuSlicePm(Pst *pst, SlicePmList *sliceStats);
+uint8_t unpackRlcSlicePm(RlcSlicePmToDuFunc func, Pst *pst, Buffer *mBuf);
 
 /* Event Handler function declarations */
 uint8_t RlcProcUeCreateReq(Pst *pst, RlcUeCfg *ueCfg);
@@ -382,6 +411,7 @@ uint8_t DuProcRlcUlUserDataTrans(Pst *pst, RlcUlUserDatInfo *ulUserData);
 uint8_t RlcProcDlUserDataTransfer(Pst *pst, RlcDlUserDataInfo *dlDataMsgInfo);
 uint8_t RlcProcUeDeleteReq(Pst *pst, RlcUeDelete *ueDelete);
 uint8_t DuProcRlcUeDeleteRsp(Pst *pst, RlcUeDeleteRsp *delRsp);
+uint8_t DuProcRlcSliceMetrics(Pst *pst, SlicePmList *sliceStats);
 #endif /* RLC_INF_H */
 
 /**********************************************************************

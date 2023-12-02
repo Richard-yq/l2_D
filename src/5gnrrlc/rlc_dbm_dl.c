@@ -329,7 +329,6 @@ Void rlcDbmDelAllDlRb(RlcCb *gCb,RlcDlRbCb **rbCbLst,uint8_t numRbCb)
          if( RLC_MODE_UM == rbCbLst[idx]->mode)
          {
             rlcUmmFreeDlRbCb(gCb,rbCbLst[idx]);
-
             RLC_FREE (gCb,rbCbLst[idx], sizeof (RlcDlRbCb));       
          }
          else if( RLC_MODE_AM == rbCbLst[idx]->mode)
@@ -340,6 +339,7 @@ Void rlcDbmDelAllDlRb(RlcCb *gCb,RlcDlRbCb **rbCbLst,uint8_t numRbCb)
          else if(RLC_MODE_TM == rbCbLst[idx]->mode)
          {
             cmLListCatLList(&(gCb->u.dlCb->toBeFreed.sduLst),&(rbCbLst[idx]->m.tm.sduQ));
+            RLC_FREE (gCb,rbCbLst[idx]->snssai, sizeof (Snssai));
             RLC_FREE (gCb,rbCbLst[idx], sizeof (RlcDlRbCb));       
          }
 
@@ -468,8 +468,8 @@ Void rlcDbmDelDlUeCb(RlcCb *gCb,RlcDlUeCb *ueCb,Bool abortFlag)
       DU_LOG("\nERROR  -->  RLC_DL : UeId[%u] HashList Insertion Failed",
             ueCb->ueId);
    }
-   memset(&gCb->rlcThpt.thptPerUe[ueCb->ueId -1], 0, sizeof(RlcThptPerUe));
-   gCb->rlcThpt.numActvUe--;
+   memset(&gCb->rlcThpt.ueTputInfo.thptPerUe[ueCb->ueId -1], 0, sizeof(RlcThptPerUe));
+   gCb->rlcThpt.ueTputInfo.numActvUe--;
    
    /* kw005.201 ccpu00117318, updating the statistics */
    gCb->genSts.numUe--;
@@ -686,7 +686,6 @@ S16 rlcDbmDlShutdown(RlcCb *gCb)
    rlcDbmDelAllDlUe(gCb);
 
    rlcDbmDlDeInit(gCb);
-
 
    return ROK;
 } /* kwDbmShutdown */

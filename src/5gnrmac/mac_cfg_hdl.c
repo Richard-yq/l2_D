@@ -31,6 +31,9 @@
 #include "mac_utils.h"
 #include "lwr_mac_phy.h"
 
+// VNF_ENABLE
+#include "../nfapi/vnf.h"
+
 uint8_t ssbPeriodicity[6] = {5, 10, 20, 40, 80, 160};
 
 uint8_t MacSchCellCfgReq(Pst *pst, MacCellCfg  *macCellCfg);
@@ -61,6 +64,20 @@ MacDuCellDeleteRspFunc macDuCellDeleteRspOpts[] =
    packDuMacCellDeleteRsp,   /* packing for loosely coupled */
    DuProcMacCellDeleteRsp,   /* packing for tightly coupled */
    packDuMacCellDeleteRsp   /* packing for light weight loosly coupled */
+};
+
+MacDuSliceCfgRspFunc macDuSliceCfgRspOpts[] =
+{
+   packDuMacSliceCfgRsp,   /* packing for loosely coupled */
+   DuProcMacSliceCfgRsp,   /* packing for tightly coupled */
+   packDuMacSliceCfgRsp   /* packing for light weight loosly coupled */
+};
+
+MacDuSliceReCfgRspFunc macDuSliceReCfgRspOpts[] =
+{
+   packDuMacSliceReCfgRsp,   /* packing for loosely coupled */
+   DuProcMacSliceReCfgRsp,   /* packing for tightly coupled */
+   packDuMacSliceReCfgRsp   /* packing for light weight loosly coupled */
 };
 
 /**
@@ -134,7 +151,7 @@ uint8_t MacProcCellCfgReq(Pst *pst, MacCellCfg *macCellCfg)
 {
    Pst cfmPst;
    uint16_t cellIdx;
-   uint8_t ret = ROK;
+   uint8_t ret = ROK, sliceIdx = 0;
    MacCellCb     *macCellCb;
 
    memset((uint8_t *)&cfmPst, 0, sizeof(Pst));
@@ -161,6 +178,34 @@ uint8_t MacProcCellCfgReq(Pst *pst, MacCellCfg *macCellCfg)
    }
    memcpy(macCb.macCell[cellIdx]->macCellCfg.sib1Cfg.sib1Pdu, macCellCfg->sib1Cfg.sib1Pdu, \
 	 macCb.macCell[cellIdx]->macCellCfg.sib1Cfg.sib1PduLen);
+   
+   // Single Network Slice Selection Assistance Information (S-NSSAI)
+   macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.numSupportedSlice = macCellCfg->plmnInfoList.numSupportedSlice;
+   MAC_ALLOC(macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.snssai, macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.numSupportedSlice\
+         * sizeof(Snssai*));
+   if(macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.snssai == NULLP)
+   {
+      DU_LOG("\nERROR  --> MAC: Memory allocation failed at MacProcCellCfgReq");
+      return RFAILED;
+   }
+
+   if(macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.snssai)
+   {
+      for(sliceIdx=0; sliceIdx<macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.numSupportedSlice; sliceIdx++)
+      {
+         if(macCellCfg->plmnInfoList.snssai[sliceIdx])
+         {
+            MAC_ALLOC(macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.snssai[sliceIdx], sizeof(Snssai));
+            if(!macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.snssai[sliceIdx])
+            {
+               DU_LOG("\nERROR  --> MAC: Memory allocation failed at MacProcCellCfgReq");
+               return RFAILED;
+            }
+            memcpy(macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.snssai[sliceIdx], macCellCfg->plmnInfoList.snssai[sliceIdx],\
+            sizeof(Snssai));
+         }
+      }
+   }
 
    /* Send cell cfg to scheduler */
    ret = MacSchCellCfgReq(pst, macCellCfg);
@@ -200,7 +245,7 @@ uint8_t MacSchCellCfgReq(Pst *pst, MacCellCfg *macCellCfg)
 {
    SchCellCfg schCellCfg;
    Pst        cfgPst;
-   uint8_t    ssbMaskIdx = 0, rsrcListIdx = 0, ret=0;
+   uint8_t    ssbMaskIdx = 0, rsrcListIdx = 0, ret=0, sliceIdx=0;
 
    memset(&cfgPst, 0, sizeof(Pst));
    memset(&schCellCfg, 0, sizeof(SchCellCfg));
@@ -303,6 +348,31 @@ uint8_t MacSchCellCfgReq(Pst *pst, MacCellCfg *macCellCfg)
       schCellCfg.schInitialUlBwp.puschCommon.timeDomRsrcAllocList[rsrcListIdx].symbolLength =
          macCellCfg->initialUlBwp.puschCommon.timeDomRsrcAllocList[rsrcListIdx].symbolLength;
    }
+
+   if(macCellCfg->plmnInfoList.snssai) 
+   {
+      schCellCfg.plmnInfoList.numSliceSupport = macCellCfg->plmnInfoList.numSupportedSlice;
+      MAC_ALLOC(schCellCfg.plmnInfoList.snssai, schCellCfg.plmnInfoList.numSliceSupport * sizeof(Snssai*));
+      if(!schCellCfg.plmnInfoList.snssai)
+      {
+         DU_LOG("\nERROR  --> MAC: Memory allocation failed at MacSchCellCfgReq");
+         return RFAILED;
+      }
+      for(sliceIdx=0; sliceIdx<schCellCfg.plmnInfoList.numSliceSupport; sliceIdx++)
+      {
+         if(macCellCfg->plmnInfoList.snssai[sliceIdx])
+         {
+            MAC_ALLOC(schCellCfg.plmnInfoList.snssai[sliceIdx], sizeof(Snssai));
+            if(!schCellCfg.plmnInfoList.snssai[sliceIdx])
+            {
+               DU_LOG("\nERROR  --> MAC: Memory allocation failed at MacSchCellCfgReq");
+               return RFAILED;
+            }
+            memcpy(schCellCfg.plmnInfoList.snssai[sliceIdx], macCellCfg->plmnInfoList.snssai[sliceIdx],  sizeof(Snssai));
+         }
+      }
+   }
+
 #ifdef NR_TDD
    memcpy(&schCellCfg.tddCfg, &macCellCfg->tddCfg, sizeof(TDDCfg));
 #endif
@@ -365,6 +435,7 @@ void MacSendCellCfgCfm(uint16_t cellId, uint8_t response)
  **/
 uint8_t MacProcSchCellCfgCfm(Pst *pst, SchCellCfgCfm *schCellCfgCfm)
 {
+   DU_LOG("\nINFO  -->  LWR_MAC [Lwr Mac Sch Info] : MacProcSchCellCfgCfm");
    uint16_t *cellId = NULLP;
 
 #ifdef CALL_FLOW_DEBUG_LOG
@@ -377,7 +448,18 @@ uint8_t MacProcSchCellCfgCfm(Pst *pst, SchCellCfgCfm *schCellCfgCfm)
 #ifdef INTEL_TIMER_MODE
       sendToLowerMac(UL_IQ_SAMPLE, 0, (void *)cellId);
 #else
+
+#ifdef VNF_ENABLE
+      // Has to be wait for PNF connection
+      // TODO using pthread cond
+      extern PNF_RUNNING_FLAG_t *pnf_running_flag;
+      while(!pnf_running_flag->flag){
+         DU_LOG("\n[MWNL] The VNF_ENABLE is set to YES and waiting for pthread signal ...\n");
+         pthread_cond_wait( &(pnf_running_flag->cond), &(pnf_running_flag->mutex));
+      }
+#endif
       sendToLowerMac(CONFIG_REQUEST, 0, (void *)cellId);
+
 #endif
    }
    else
@@ -470,7 +552,7 @@ uint8_t MacSendCellDeleteRsp(CellDeleteStatus result, uint8_t cellId)
  * * ****************************************************************/
 uint8_t MacProcSchCellDeleteRsp(Pst *pst, SchCellDeleteRsp *schCellDelRsp)
 {
-   uint8_t  ret = ROK;
+   uint8_t  ret = ROK, sliceIdx = 0;
    uint16_t cellIdx=0;
    CellDeleteStatus status;
    
@@ -490,6 +572,15 @@ uint8_t MacProcSchCellDeleteRsp(Pst *pst, SchCellDeleteRsp *schCellDelRsp)
             if(macCb.macCell[cellIdx]->cellId == schCellDelRsp->cellId)
             {
                status  = SUCCESSFUL_RSP;
+               if(macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.snssai)
+               {
+                  for(sliceIdx = 0; sliceIdx<macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.numSupportedSlice; sliceIdx++)
+                  {
+                     MAC_FREE(macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.snssai[sliceIdx], sizeof(Snssai));
+                  }
+                  MAC_FREE(macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.snssai, macCb.macCell[cellIdx]->macCellCfg.plmnInfoList.\
+                  numSupportedSlice * sizeof(Snssai*));
+               }
                MAC_FREE(macCb.macCell[cellIdx]->macCellCfg.sib1Cfg.sib1Pdu, \
                   macCb.macCell[cellIdx]->macCellCfg.sib1Cfg.sib1PduLen);
                MAC_FREE(macCb.macCell[cellIdx], sizeof(MacCellCb));
@@ -625,6 +716,276 @@ uint8_t MacProcCellDeleteReq(Pst *pst, MacCellDelete *cellDelete)
    return ret;
 }
 
+/**
+ * @brief free the temporary slice cfg stored in macCb.
+ *
+ * @details
+ *
+ *     Function : freeMacSliceCfgReq 
+ *
+ *   free the temporary slice cfg stored in macCb
+ *
+ *  @param[in]  
+ *  @return  int
+ *      -# ROK
+ **/
+void freeMacSliceCfgReq(MacSliceCfgReq *cfgReq,Pst *pst)
+{
+   uint8_t cfgIdx = 0;
+   
+   if(cfgReq)
+   {
+      if(cfgReq->numOfConfiguredSlice)
+      {
+         for(cfgIdx = 0; cfgIdx<cfgReq->numOfConfiguredSlice; cfgIdx++)
+         {
+            if(cfgReq->listOfSliceCfg[cfgIdx])
+            {
+               MAC_FREE_SHRABL_BUF(pst->region, pst->pool, cfgReq->listOfSliceCfg[cfgIdx]->rrmPolicyRatio, sizeof(RrmPolicyRatio)); 
+            }
+            MAC_FREE_SHRABL_BUF(pst->region, pst->pool, cfgReq->listOfSliceCfg[cfgIdx], sizeof(MacSliceRrmPolicy));
+         }
+         MAC_FREE_SHRABL_BUF(pst->region, pst->pool, cfgReq->listOfSliceCfg, cfgReq->numOfConfiguredSlice * sizeof(MacSliceRrmPolicy*));
+      }
+      MAC_FREE_SHRABL_BUF(pst->region, pst->pool, cfgReq, sizeof(MacSliceCfgReq));
+   }
+}
+/**
+ * @brief fill Mac Slice Config Rsp
+ *
+ * @details
+ *
+ *     Function : fillMacSliceCfgRsp 
+ *
+ *     This function   fill Mac Slice Config Rsp
+ *
+ *  @param[in]  SchSliceCfgRsp *sliceCfgRsp, MacSliceCfgRsp *macSliceCfgRsp,
+ *  uint8_t *count
+ *  @return  int
+ *      -# ROK
+ **/
+uint8_t fillMacSliceCfgRsp(SchSliceCfgRsp *schSliceCfgRsp, MacSliceCfgRsp *macSliceCfgRsp)
+{
+   
+    bool sliceFound = false;
+    uint8_t cfgIdx = 0;
+
+    macSliceCfgRsp->numSliceCfgRsp  = schSliceCfgRsp->numSliceCfgRsp;
+    MAC_ALLOC_SHRABL_BUF(macSliceCfgRsp->listOfSliceCfgRsp,  macSliceCfgRsp->numSliceCfgRsp* sizeof(MacSliceRsp*));
+    if(macSliceCfgRsp->listOfSliceCfgRsp == NULLP)
+    {
+       DU_LOG("\nERROR  -->  MAC : Memory allocation failedi in fillMacSliceCfgRsp");
+       return RFAILED;
+    }
+
+    for(cfgIdx = 0; cfgIdx<schSliceCfgRsp->numSliceCfgRsp; cfgIdx++)
+    {
+       sliceFound = false;
+       if(schSliceCfgRsp->listOfSliceCfgRsp[cfgIdx]->rsp == RSP_OK)
+       {
+          sliceFound = true;
+       }
+
+       MAC_ALLOC_SHRABL_BUF(macSliceCfgRsp->listOfSliceCfgRsp[cfgIdx], sizeof(SliceRsp));
+       if(macSliceCfgRsp->listOfSliceCfgRsp[cfgIdx] == NULLP)
+       {
+          DU_LOG("\nERROR  -->  MAC : Memory allocation failedi in fillMacSliceCfgRsp");
+          return RFAILED;
+       }
+
+       macSliceCfgRsp->listOfSliceCfgRsp[cfgIdx]->snssai = schSliceCfgRsp->listOfSliceCfgRsp[cfgIdx]->snssai;
+       if(sliceFound == true)
+          macSliceCfgRsp->listOfSliceCfgRsp[cfgIdx]->rsp    = MAC_DU_APP_RSP_OK;
+       else
+       {
+          macSliceCfgRsp->listOfSliceCfgRsp[cfgIdx]->rsp    = MAC_DU_APP_RSP_NOK;
+          macSliceCfgRsp->listOfSliceCfgRsp[cfgIdx]->cause  = SLICE_NOT_PRESENT;
+       }
+    }
+    return ROK;
+}
+
+/**
+ * @brief send slice cfg response to duapp.
+ *
+ * @details
+ *
+ *     Function : MacSendSliceConfigRsp
+ *
+ *   sends  slice cfg response to duapp
+ *
+ *  @param[in] MacSliceCfgRsp macSliceCfgRsp 
+ *  @return  int
+ *      -# ROK
+ **/
+uint8_t MacSendSliceConfigRsp(MacSliceCfgRsp *macSliceCfgRsp)
+{
+    Pst  rspPst;
+    
+    memset(&rspPst, 0, sizeof(Pst));
+    FILL_PST_MAC_TO_DUAPP(rspPst, EVENT_MAC_SLICE_CFG_RSP);
+    return (*macDuSliceCfgRspOpts[rspPst.selector])(&rspPst, macSliceCfgRsp);
+
+}
+/**
+ * @brief free the slice cfg rsp received from sch.
+ *
+ * @details
+ *
+ *     Function : freeSchSliceCfgRsp 
+ *
+ *     This free the slice cfg rsp received from sch
+ *
+ *  @param[in]  SchSliceCfgRsp *sliceCfgrsp
+ *  @return  int
+ *      -# ROK
+ **/
+void freeSchSliceCfgRsp(SchSliceCfgRsp *schSliceCfgRsp)
+{
+   uint8_t cfgIdx = 0;
+
+   if(schSliceCfgRsp)
+   {
+      if(schSliceCfgRsp->numSliceCfgRsp)
+      {
+         for(cfgIdx = 0; cfgIdx< schSliceCfgRsp->numSliceCfgRsp; cfgIdx++)
+         {
+            MAC_FREE(schSliceCfgRsp->listOfSliceCfgRsp[cfgIdx], sizeof(SliceRsp));
+         }
+         MAC_FREE(schSliceCfgRsp->listOfSliceCfgRsp, schSliceCfgRsp->numSliceCfgRsp * sizeof(SliceRsp*));
+      }
+   }
+}
+
+/**
+ * @brief Mac process the slice cfg rsp received from sch.
+ *
+ * @details
+ *
+ *     Function : MacProcSchSliceCfgRsp 
+ *
+ *     This function  process the slice cfg rsp received from sch
+ *
+ *  @param[in]  Pst           *pst
+ *  @param[in]  SchSliceCfgRsp *sliceCfgrsp
+ *  @return  int
+ *      -# ROK
+ **/
+uint8_t MacProcSchSliceCfgRsp(Pst *pst, SchSliceCfgRsp *schSliceCfgRsp)
+{
+   MacSliceCfgRsp *macSliceCfgRsp = NULLP;
+
+   if(schSliceCfgRsp)
+   {
+      MAC_ALLOC_SHRABL_BUF(macSliceCfgRsp, sizeof(MacSliceCfgRsp));
+      if(macSliceCfgRsp == NULLP)
+      {
+          DU_LOG("\nERROR  -->  MAC : Failed to allocate memory in MacProcSchSliceCfgRsp");
+          return RFAILED;
+      }
+      if(schSliceCfgRsp->listOfSliceCfgRsp)
+      {
+         if(fillMacSliceCfgRsp(schSliceCfgRsp, macSliceCfgRsp) != ROK)
+         {
+            DU_LOG("\nERROR  -->  MAC : Failed to fill the slice cfg response");
+            return RFAILED;
+         }
+         MacSendSliceConfigRsp(macSliceCfgRsp);
+      }
+      freeSchSliceCfgRsp(schSliceCfgRsp);
+   }
+   return ROK;
+}
+
+/**
+* @brief send slice cfg response to duapp.
+*
+* @details
+*
+*     Function : MacSendSliceReconfigRsp 
+*
+*   sends  slice cfg response to duapp
+*
+*  @param[in] MacSliceCfgRsp macSliceRecfgRsp
+*  @return  int
+*      -# ROK
+**/
+uint8_t MacSendSliceReconfigRsp(MacSliceCfgRsp *macSliceRecfgRsp)
+{
+   Pst  rspPst;
+
+   memset(&rspPst, 0, sizeof(Pst));
+   FILL_PST_MAC_TO_DUAPP(rspPst, EVENT_MAC_SLICE_RECFG_RSP);
+   return (*macDuSliceReCfgRspOpts[rspPst.selector])(&rspPst, macSliceRecfgRsp);
+
+}
+
+/**
+ * @brief Mac process the slice cfg rsp received from sch.
+ *
+ * @details
+ *
+ *     Function : MacProcSchSliceReCfgRsp 
+ *
+ *     This function  process the slice cfg rsp received from sch
+ *
+ *  @param[in]  Pst           *pst
+ *  @param[in]  SchSliceCfgRsp *schSliceRecfgRsp
+ *  @return  int
+ *      -# ROK
+ **/
+uint8_t MacProcSchSliceReCfgRsp(Pst *pst, SchSliceCfgRsp *schSliceRecfgRsp)
+{
+   MacSliceCfgRsp *macSliceReCfgRsp = NULLP;
+
+   if(schSliceRecfgRsp)
+   {
+      MAC_ALLOC_SHRABL_BUF(macSliceReCfgRsp, sizeof(MacSliceCfgRsp));
+      if(macSliceReCfgRsp == NULLP)
+      {
+          DU_LOG("\nERROR  -->  MAC : Failed to allocate memory in MacProcSchSliceReCfgRsp");
+          return RFAILED;
+      }
+
+      if(schSliceRecfgRsp->listOfSliceCfgRsp)
+      {
+         if(fillMacSliceCfgRsp(schSliceRecfgRsp, macSliceReCfgRsp) != ROK)
+         {
+            DU_LOG("\nERROR  -->  MAC : Failed to fill the slice Recfg response");
+            return RFAILED;
+         }
+         MacSendSliceReconfigRsp(macSliceReCfgRsp);
+      }
+      freeSchSliceCfgRsp(schSliceRecfgRsp);
+   }
+   return ROK;
+}
+
+
+// VNF_ENABLE
+/**
+ * @brief Layer Manager VNF Configuration request handler.
+ *
+ * @details
+ *
+ *     Function : MacProcVnfCfgReq
+ *
+ *     This function handles the gNB and cell configuration
+ *     request received from DU APP.
+ *     This API unapcks and forwards the config towards SCH
+ *
+ *  @param[in]  Pst           *pst
+ *  @param[in]  MacCellCfg    *macCellCfg
+ *  @return
+ *      -# ROK
+ **/
+uint8_t MacProcVnfCfgReq(Pst* pst, p5_p7_cfg* vnf_config)
+{
+   DU_LOG("\nINFO  -->  LWR_MAC : Calling MacProcVnfCfgReq");
+   sendToLowerMac(VNF_START_CFG_REQUEST, 0, (void*)vnf_config);
+
+   return ROK;
+}
 /**********************************************************************
   End of file
  **********************************************************************/

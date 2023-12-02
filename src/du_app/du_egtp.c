@@ -29,8 +29,6 @@
 #include "du_egtp.h"
 #include "du_utils.h"
 
-/* Global variable declaration */
-EgtpGlobalCb egtpCb;
 
 /**************************************************************************
  * @brief Task Initiation callback function. 
@@ -874,6 +872,7 @@ uint8_t egtpSendMsg(Buffer *mBuf)
    uint16_t       txLen;
    CmInetMemInfo  info;
    CmInetAddr     dstAddr;
+   static uint64_t numDataSent = 0;
 
    info.region = DU_APP_MEM_REGION;
    info.pool = DU_POOL;
@@ -888,8 +887,11 @@ uint8_t egtpSendMsg(Buffer *mBuf)
       DU_LOG("\nERROR  -->  EGTP : Failed sending the message");
       return RFAILED;
    }
-
-   DU_LOG("\nDEBUG   -->  EGTP : Message Sent");
+   else
+   {
+      DU_LOG("\nDEBUG -->  EGTP : Sent UL Message [%ld]", numDataSent+1);
+      numDataSent++;
+   }
 
    return ROK;
 }
@@ -932,10 +934,11 @@ uint8_t egtpRecvMsg()
          &recvBuf, (int16_t *)&bufLen, CM_INET_NO_FLAG);
       if(ret == ROK && recvBuf != NULLP)
       {  
-         //DU_LOG("\nDEBUG  -->  EGTP : Received DL Message[%ld]\n", gDlDataRcvdCnt + 1);
+         DU_LOG("\nDEBUG  -->  EGTP : Received DL Message[%ld]\n", gDlDataRcvdCnt + 1);
          //ODU_PRINT_MSG(recvBuf, 0 ,0);
          egtpHdlRecvData(recvBuf);
          gDlDataRcvdCnt++;
+         
       }
    }
    

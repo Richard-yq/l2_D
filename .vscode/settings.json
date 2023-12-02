@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "*.x": "c"
+        "*.x": "c",
+        "mac_upr_inf_api.h": "c"
     }
 }

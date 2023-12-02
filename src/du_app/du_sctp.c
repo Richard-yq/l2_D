@@ -578,53 +578,53 @@ uint8_t sctpNtfyHdlr(CmInetSctpNotification *ntfy, uint8_t *itfState)
          switch(ntfy->u.assocChange.state)
          {
             case CM_INET_SCTP_COMM_UP:
-               DU_LOG("INFO   -->  Event : COMMUNICATION UP");
+               DU_LOG("\nINFO   -->  Event : COMMUNICATION UP in du");
                *itfState = DU_SCTP_UP;
                break;
             case CM_INET_SCTP_COMM_LOST:
-               DU_LOG("INFO   -->  Event : COMMUNICATION LOST");
+               DU_LOG("\nINFO   -->  Event : COMMUNICATION LOST in du");
                *itfState = DU_SCTP_DOWN;
                break;
             case CM_INET_SCTP_RESTART:
-               DU_LOG("INFO   -->  Event : SCTP RESTART");
+               DU_LOG("\nINFO   -->  Event : SCTP RESTART in du");
                *itfState = DU_SCTP_DOWN;
                break;
             case CM_INET_SCTP_SHUTDOWN_COMP: /* association gracefully shutdown */
-               DU_LOG("INFO   -->  Event : SHUTDOWN COMPLETE");
+               DU_LOG("\nINFO   -->  Event : SHUTDOWN COMPLETE in du");
                *itfState = DU_SCTP_DOWN;
                break;
             case CM_INET_SCTP_CANT_STR_ASSOC:
-               DU_LOG("INFO   -->  Event : CANT START ASSOC");
+               DU_LOG("\nINFO   -->  Event : CANT START ASSOC in du");
                *itfState = DU_SCTP_DOWN;
                break;
             default:
-               DU_LOG("\nERROR  -->  Invalid event %d", ntfy->u.assocChange.state);
+               DU_LOG("\nERROR  -->  Invalid event %d in du", ntfy->u.assocChange.state);
                break;
          }
          break;
       case CM_INET_SCTP_PEER_ADDR_CHANGE :
-         DU_LOG("\nINFO   -->  SCTP : Peer Address Change notificarion received");
+         DU_LOG("\nINFO   -->  SCTP : Peer Address Change notificarion received in du");
          /* Need to add handler */
          break;
       case CM_INET_SCTP_REMOTE_ERROR :
-         DU_LOG("\nINFO   -->  SCTP : Remote Error notification received");
+         DU_LOG("\nINFO   -->  SCTP : Remote Error notification received in du");
          break;
       case CM_INET_SCTP_SEND_FAILED :
-         DU_LOG("\nINFO   -->  SCTP : Send Failed notification received\n");
+         DU_LOG("\nINFO   -->  SCTP : Send Failed notification receivedin du");
          break;
       case CM_INET_SCTP_SHUTDOWN_EVENT : /* peer socket gracefully closed */
-         DU_LOG("\nINFO   -->  SCTP : Shutdown Event notification received\n");
+         DU_LOG("\nINFO   -->  SCTP : Shutdown Event notification received in du");
          *itfState = DU_SCTP_DOWN;
          exit(0);
          break;
       case CM_INET_SCTP_ADAPTATION_INDICATION :
-         DU_LOG("\nINFO   -->  SCTP : Adaptation Indication received\n");
+         DU_LOG("\nINFO   -->  SCTP : Adaptation Indication received in du");
          break;
       case CM_INET_SCTP_PARTIAL_DELIVERY_EVENT:
-         DU_LOG("\nINFO   -->  SCTP : Partial Delivery Event received\n");
+         DU_LOG("\nINFO   -->  SCTP : Partial Delivery Event received in du");
          break;
       default:
-         DU_LOG("\nERROR  -->  SCTP : Invalid sctp notification type %d", ntfy->header.nType);
+         DU_LOG("\nERROR  -->  SCTP : Invalid sctp notification type %d in du", ntfy->header.nType);
          break;
    }
 

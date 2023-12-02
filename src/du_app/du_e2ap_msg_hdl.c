@@ -27,7 +27,7 @@
 #include "du_mgr_main.h"
 #include "du_utils.h"
 #include "GlobalE2node-gNB-ID.h"
-#include<ProtocolIE-FieldE2.h>
+#include <ProtocolIE-FieldE2.h>
 #include "E2setupRequest.h"
 #include "InitiatingMessageE2.h"
 #include "SuccessfulOutcomeE2.h"

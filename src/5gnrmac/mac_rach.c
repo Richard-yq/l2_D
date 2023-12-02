@@ -63,6 +63,60 @@ uint8_t sendRachIndMacToSch(RachIndInfo *rachInd)
  *
  * @details
  *
+ *    Function : ORAN_OAI_fapiMacRachInd
+ *
+ *    Functionality:
+ *      Processes RACH indication from PHY
+ *
+ * @params[in]
+ *             Rach indication message
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/ 
+uint8_t ORAN_OAI_fapiMacRachInd(RachInd *rachInd)
+{
+   uint8_t      pduIdx;
+   uint8_t      preambleIdx;
+   RachIndInfo  *rachIndInfo;
+
+   DU_LOG("\nINFO  -->  MAC : Received RACH indication");
+   /* Considering one pdu and one preamble */
+   pduIdx = 0;
+   preambleIdx = 0;
+
+   MAC_ALLOC(rachIndInfo, sizeof(RachIndInfo));
+   if(!rachIndInfo)
+   {
+      DU_LOG("\nERROR  --> MAC : Memory allocation failure in fapiMacRachInd");
+      return RFAILED;
+   }
+
+   rachIndInfo->cellId = rachInd->cellId;
+   rachIndInfo->timingInfo.sfn = rachInd->timingInfo.sfn;
+   rachIndInfo->timingInfo.slot = rachInd->timingInfo.slot;
+   rachIndInfo->slotIdx = rachInd->rachPdu[pduIdx].slotIdx;
+   rachIndInfo->symbolIdx = rachInd->rachPdu[pduIdx].symbolIdx;
+   rachIndInfo->freqIdx = rachInd->rachPdu[pduIdx].freqIdx;
+   rachIndInfo->preambleIdx = \
+      rachInd->rachPdu[pduIdx].preamInfo[preambleIdx].preamIdx;
+   rachIndInfo->timingAdv = \
+      rachInd->rachPdu[pduIdx].preamInfo[preambleIdx].timingAdv;
+
+   /* Store the value in macRaCb */
+   createMacRaCb(rachIndInfo);
+
+   /* Send RACH Indication to SCH */
+   return(sendRachIndMacToSch(rachIndInfo));
+
+}
+
+/*******************************************************************
+ *
+ * @brief Processes RACH indication from PHY
+ *
+ * @details
+ *
  *    Function : fapiMacRachInd
  *
  *    Functionality:

@@ -101,13 +101,58 @@
 #include "DLUPTNLInformation-ToBeSetup-Item.h"
 #include "UPTransportLayerInformation.h"
 #include "GTPTunnel.h"
+#include "SupportedSULFreqBandItem.h"
+#include "du_sys_info_hdl.h"
 
 #ifdef O1_ENABLE
-#include "ConfigInterface.h"
+#include "CmInterface.h"
 extern StartupConfig g_cfg;
 #endif
 
 DuCfgParams duCfgParam;
+
+/******************************************************************
+ *
+ * @brief Function to fetch lcId based on DRB Id
+ *
+ * @details
+ *
+ *    Function : fetchLcId
+ *
+ *    @params[in] drbId
+ *
+ *    Functionality: Function to fetch lcId based on DRB Id
+ *
+ * Returns: lcId - SUCCESS
+ *          RFAILED - FAILURE
+ *****************************************************************/
+
+uint8_t fetchLcId(uint8_t drbId)
+{
+   uint8_t cellIdx = 0, ueIdx = 0, lcIdx = 0, numLcs = 0, lcId = 0;
+
+   for(cellIdx = 0; cellIdx < MAX_NUM_CELL; cellIdx++)
+   {
+      for(ueIdx = 0; ueIdx < MAX_NUM_UE; ueIdx++)
+      {
+         if(duCb.actvCellLst[cellIdx] != NULLP)
+         {
+            numLcs = duCb.actvCellLst[cellIdx]->ueCb[ueIdx].rlcUeCfg.numLcs;
+            for(lcIdx = 0; lcIdx < numLcs; lcIdx++)
+            {
+               if(duCb.actvCellLst[cellIdx]->ueCb[ueIdx].rlcUeCfg.rlcLcCfg[lcIdx].rbId == drbId && \
+                  duCb.actvCellLst[cellIdx]->ueCb[ueIdx].rlcUeCfg.rlcLcCfg[lcIdx].rbType == RB_TYPE_DRB)
+               {
+                  lcId = duCb.actvCellLst[cellIdx]->ueCb[ueIdx].rlcUeCfg.rlcLcCfg[lcIdx].lcId;
+                  return lcId;
+               }
+            }
+         }
+      }
+   }
+   DU_LOG("\nERROR   -->  DU_APP: fetchLcId() failed for drbId %d", drbId);
+   return RFAILED;
+}
 
 /************************************************************************
  *
@@ -804,7 +849,7 @@ uint8_t BuildDLNRInfo(NRFreqInfo_t *dlnrfreq)
 S16 BuildNrCellId(BIT_STRING_t *nrcell)
 {
    memset(nrcell->buf, 0, nrcell->size);
-   nrcell->buf[4]   = 16; 
+   nrcell->buf[4]   = duCfgParam.sib1Params.cellIdentity; 
    nrcell->bits_unused = 4;
    return ROK;
 }
@@ -886,6 +931,89 @@ uint8_t BuildFiveGSTac(Served_Cell_Information_t *servcell)
    servcell->fiveGS_TAC->buf[2] = duCfgParam.srvdCellLst[0].duCellInfo.tac;
    return ROK;  
 }
+
+/*******************************************************************
+ *
+ * @brief fill nr frequency information
+ *
+ * @details
+ *
+ *    Function : fillNrTddInfo 
+ *
+ *    Functionality: fill nr frequency information
+ *
+ * @params[in] NRFreqInfo_t freqInfo
+ * @return ROK     - success
+ *         RFAILED - failure
+ *
+ * ****************************************************************/
+uint8_t fillNrTddInfo(TDD_Info_t *tddInfo)
+{
+   uint8_t elementCnt = 1, freqBandListIdx = 0, supportedBandIdx = 0;
+   NRFreqInfo_t *freqInfo = NULLP;
+
+   if(tddInfo == NULLP)
+   {
+      DU_LOG("\nERROR  --> DU APP : Null pointer received at fillNrTddInfo");
+      return RFAILED;
+   }
+   
+   freqInfo = &tddInfo->nRFreqInfo;
+   freqInfo->nRARFCN = duCfgParam.srvdCellLst[0].duCellInfo.f1Mode.mode.tdd.nrFreqInfo.nrArfcn; 
+
+   freqInfo->freqBandListNr.list.count = elementCnt; 
+   freqInfo->freqBandListNr.list.size = freqInfo->freqBandListNr.list.count  * sizeof(FreqBandNrItem_t *);
+   DU_ALLOC(freqInfo->freqBandListNr.list.array, freqInfo->freqBandListNr.list.size );
+   if(!freqInfo->freqBandListNr.list.array)
+   {
+      DU_LOG("\nERROR  --> DU APP : Memory allocation failed at fillNrTddInfo");
+      return RFAILED;
+   }
+
+   for(freqBandListIdx = 0; freqBandListIdx<freqInfo->freqBandListNr.list.count; freqBandListIdx++)
+   {
+      DU_ALLOC(freqInfo->freqBandListNr.list.array[freqBandListIdx],  sizeof(FreqBandNrItem_t ));
+      if(!freqInfo->freqBandListNr.list.array[freqBandListIdx])
+      {
+         DU_LOG("\nERROR  --> DU APP : Memory allocation failed at fillNrTddInfo");
+         return RFAILED;
+      }
+
+      freqInfo->freqBandListNr.list.array[freqBandListIdx]->freqBandIndicatorNr = duCfgParam.srvdCellLst[0].duCellInfo.\
+      f1Mode.mode.tdd.nrFreqInfo.freqBand[0].nrFreqBand;
+      freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.count = elementCnt;
+      freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.size = freqInfo->freqBandListNr.list.array[freqBandListIdx]->\
+      supportedSULBandList.list.count * sizeof(SupportedSULFreqBandItem_t*);
+
+      DU_ALLOC(freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.array,\
+            freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.size);
+      if(!freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.array)
+      {
+         DU_LOG("\nERROR  --> DU APP : Memory allocation failed at fillNrTddInfo");
+         return RFAILED;
+      }
+
+      for(supportedBandIdx = 0; supportedBandIdx<freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.count; supportedBandIdx++)
+      {
+         DU_ALLOC(freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.array[supportedBandIdx],\
+               sizeof(SupportedSULFreqBandItem_t));
+         if(!freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.array[supportedBandIdx])
+         {
+            DU_LOG("\nERROR  --> DU APP : Memory allocation failed at fillNrTddInfo");
+            return RFAILED;
+         }
+
+         freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.array[supportedBandIdx]->freqBandIndicatorNr =\
+         duCfgParam.srvdCellLst[0].duCellInfo.f1Mode.mode.tdd.nrFreqInfo.freqBand[0].sulBand[0];
+      }
+   }
+
+   tddInfo->transmission_Bandwidth.nRSCS = duCfgParam.srvdCellLst[0].duCellInfo.f1Mode.mode.tdd.nrFreqInfo.sulInfo.sulTxBw.nrScs;
+   tddInfo->transmission_Bandwidth.nRNRB = duCfgParam.srvdCellLst[0].duCellInfo.f1Mode.mode.tdd.nrFreqInfo.sulInfo.sulTxBw.nrb;
+
+   return ROK;
+}
+
 /*******************************************************************
  *
  * @brief Builds NR Mode 
@@ -905,38 +1033,63 @@ uint8_t BuildNrMode(NR_Mode_Info_t *mode)
 {
    uint8_t BuildDLNRInforet=0;
    uint8_t BuildULNRInforet=0; 
-   /* FDD Mode */
+   
+#ifdef NR_TDD
+   mode->present = NR_Mode_Info_PR_tDD;
+#else
    mode->present = NR_Mode_Info_PR_fDD;
+#endif   
+   
    if(mode->present == NR_Mode_Info_PR_fDD)
    {
       DU_ALLOC(mode->choice.fDD,sizeof(FDD_Info_t));
       if(mode->choice.fDD == NULLP)
       {
-	 return RFAILED;
+         DU_LOG("\nERROR  --> Memory allocation failed in BuildNrMode");
+         return RFAILED;
       }
       BuildULNRInforet = BuildULNRInfo(&mode->choice.fDD->uL_NRFreqInfo);
       if(BuildULNRInforet != ROK)
       {
-	 return RFAILED;    
+         DU_LOG("\nERROR  --> Failed to build UlNrFreqInfo");
+         return RFAILED;    
       }
       BuildDLNRInforet = BuildDLNRInfo(&mode->choice.fDD->dL_NRFreqInfo);
       if(BuildDLNRInforet != ROK)
       {
-	 return RFAILED;
+         DU_LOG("\nERROR  --> Failed to build DlNrFreqInfo");
+         return RFAILED;
       }
+      mode->choice.fDD->uL_Transmission_Bandwidth.nRSCS = \
+                                                          duCfgParam.srvdCellLst[0].duCellInfo.\
+                                                          f1Mode.mode.fdd.ulTxBw.nrScs;
+      mode->choice.fDD->uL_Transmission_Bandwidth.nRNRB = \
+                                                          duCfgParam.srvdCellLst[0].duCellInfo.\
+                                                          f1Mode.mode.fdd.ulTxBw.nrb;
+      mode->choice.fDD->dL_Transmission_Bandwidth.nRSCS = \
+                                                          duCfgParam.srvdCellLst[0].duCellInfo.\
+                                                          f1Mode.mode.fdd.dlTxBw.nrScs;
+      mode->choice.fDD->dL_Transmission_Bandwidth.nRNRB = \
+                                                          duCfgParam.srvdCellLst[0].duCellInfo.\
+                                                          f1Mode.mode.fdd.dlTxBw.nrb;
    }
-   mode->choice.fDD->uL_Transmission_Bandwidth.nRSCS = \
-						       duCfgParam.srvdCellLst[0].duCellInfo.\
-						       f1Mode.mode.fdd.ulTxBw.nrScs;
-   mode->choice.fDD->uL_Transmission_Bandwidth.nRNRB = \
-						       duCfgParam.srvdCellLst[0].duCellInfo.\
-						       f1Mode.mode.fdd.ulTxBw.nrb;
-   mode->choice.fDD->dL_Transmission_Bandwidth.nRSCS = \
-						       duCfgParam.srvdCellLst[0].duCellInfo.\
-						       f1Mode.mode.fdd.dlTxBw.nrScs;
-   mode->choice.fDD->dL_Transmission_Bandwidth.nRNRB = \
-						       duCfgParam.srvdCellLst[0].duCellInfo.\
-						       f1Mode.mode.fdd.dlTxBw.nrb;
+   else if(mode->present == NR_Mode_Info_PR_tDD) 
+   {
+      DU_ALLOC(mode->choice.tDD,sizeof(TDD_Info_t));
+      if(mode->choice.tDD == NULLP)
+      {
+         DU_LOG("\nERROR  --> Memory allocation failed in BuildNrMode");
+         return RFAILED;
+      }
+
+      if(fillNrTddInfo(mode->choice.tDD) != ROK)
+      {
+         DU_LOG("\nERROR  --> Failed to fill Nr TDD information");
+         return RFAILED;
+      }
+
+   }
+
    return ROK;
 }
 /*******************************************************************
@@ -956,95 +1109,107 @@ uint8_t BuildNrMode(NR_Mode_Info_t *mode)
  * ****************************************************************/
 uint8_t BuildExtensions(ProtocolExtensionContainer_4624P3_t **ieExtend)
 {
-   uint8_t idx;
-   uint8_t plmnidx;
-   uint8_t extensionCnt=1;
-   uint8_t sliceId=0;
-   uint8_t sdId;
+   uint8_t idx=0, plmnidx=0, sliceLstIdx=0;
+   uint8_t elementCnt=0, extensionCnt=0;
+
+   extensionCnt=IE_EXTENSION_LIST_COUNT;
    DU_ALLOC(*ieExtend,sizeof(ProtocolExtensionContainer_4624P3_t));
    if((*ieExtend) == NULLP)
    {
+      DU_LOG("ERROR  --> DU_APP : BuildExtensions(): Memory allocation failed");
       return RFAILED;
    }
    (*ieExtend)->list.count = extensionCnt;
    (*ieExtend)->list.size = \
-			    extensionCnt * sizeof(ServedPLMNs_ItemExtIEs_t *);
+                            extensionCnt * sizeof(ServedPLMNs_ItemExtIEs_t *);
    DU_ALLOC((*ieExtend)->list.array,(*ieExtend)->list.size);
    if((*ieExtend)->list.array == NULLP)
    {
+      DU_LOG("ERROR  --> DU_APP : BuildExtensions(): Memory allocation failed");
       return RFAILED;
    }
    for(plmnidx=0;plmnidx<extensionCnt;plmnidx++)
    {
       DU_ALLOC((*ieExtend)->list.array[plmnidx],\
-	    sizeof(ServedPLMNs_ItemExtIEs_t));
+            sizeof(ServedPLMNs_ItemExtIEs_t));
       if((*ieExtend)->list.array[plmnidx] == NULLP)
       {
-	 return RFAILED;
+         DU_LOG("ERROR  --> DU_APP : BuildExtensions(): Memory allocation failed");
+         return RFAILED;
       }
    }
+   
+   elementCnt = duCfgParam.srvdCellLst[0].duCellInfo.cellInfo.srvdPlmn[0].taiSliceSuppLst.numSupportedSlices;
    idx = 0;
    (*ieExtend)->list.array[idx]->id = ProtocolIE_ID_id_TAISliceSupportList;
    (*ieExtend)->list.array[idx]->criticality = Criticality_ignore;
    (*ieExtend)->list.array[idx]->extensionValue.present = \
-							  ServedPLMNs_ItemExtIEs__extensionValue_PR_SliceSupportList;
+   ServedPLMNs_ItemExtIEs__extensionValue_PR_SliceSupportList;
    (*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-      list.count = 1;
+      list.count = elementCnt;
    (*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-      list.size = sizeof(SliceSupportItem_t *);
+      list.size = (*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
+      list.count * sizeof(SliceSupportItem_t *);
+
    DU_ALLOC((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-	 list.array,sizeof(SliceSupportItem_t *));
+         list.array, elementCnt * sizeof(SliceSupportItem_t *));
    if((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-	 list.array == NULLP)
+         list.array == NULLP)
    {
+      DU_LOG("ERROR  --> DU_APP : BuildExtensions(): Memory allocation failed");
       return RFAILED;
    }
-   DU_ALLOC((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-	 list.array[sliceId],sizeof(SliceSupportItem_t));
-   if((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-	 list.array[sliceId] == NULLP) 
+
+   for(sliceLstIdx =0; sliceLstIdx<elementCnt; sliceLstIdx++)
    {
-      return RFAILED;
+      DU_ALLOC((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
+            list.array[sliceLstIdx],sizeof(SliceSupportItem_t));
+      if((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
+            list.array[sliceLstIdx] == NULLP) 
+      {
+         DU_LOG("ERROR  --> DU_APP : BuildExtensions(): Memory allocation failed");
+         return RFAILED;
+      }
+      (*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
+         list.array[sliceLstIdx]->sNSSAI.sST.size = sizeof(uint8_t);
+      DU_ALLOC((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList\
+            .list.array[sliceLstIdx]->sNSSAI.sST.buf,(*ieExtend)->list.array[idx]->\
+            extensionValue.choice.SliceSupportList.\
+            list.array[sliceLstIdx]->sNSSAI.sST.size);
+      if((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList\
+            .list.array[sliceLstIdx]->sNSSAI.sST.buf == NULLP)
+      {
+         DU_LOG("ERROR  --> DU_APP : BuildExtensions(): Memory allocation failed");
+         return RFAILED;
+      }
+      (*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
+         list.array[sliceLstIdx]->sNSSAI.sST.buf[0] = duCfgParam.srvdCellLst[0].duCellInfo.\
+         cellInfo.srvdPlmn[0].taiSliceSuppLst.snssai[sliceLstIdx]->sst;
+      
+      DU_ALLOC((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
+            list.array[sliceLstIdx]->sNSSAI.sD,sizeof(OCTET_STRING_t));
+      if((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
+            list.array[sliceLstIdx]->sNSSAI.sD == NULLP)
+      {
+         DU_LOG("ERROR  --> DU_APP : BuildExtensions(): Memory allocation failed");
+         return RFAILED;
+      }
+      (*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
+         list.array[sliceLstIdx]->sNSSAI.sD->size = 3 * sizeof(uint8_t);
+      DU_ALLOC((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
+            list.array[sliceLstIdx]->sNSSAI.sD->buf, (*ieExtend)->list.array[idx]->extensionValue.choice.\
+            SliceSupportList.list.array[sliceLstIdx]->sNSSAI.sD->size);
+      if((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
+            list.array[sliceLstIdx]->sNSSAI.sD->buf == NULLP)
+      {
+         DU_LOG("ERROR  --> DU_APP : BuildExtensions(): Memory allocation failed");
+         return RFAILED;
+      }
+      memcpy((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sD->buf, duCfgParam.srvdCellLst[0].duCellInfo.\
+      cellInfo.srvdPlmn[0].taiSliceSuppLst.snssai[sliceLstIdx]->sd, (*ieExtend)->list.array[idx]->\
+      extensionValue.choice.SliceSupportList.list.array[sliceLstIdx]->sNSSAI.sD->size);
    }
-   (*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-      list.array[sliceId]->sNSSAI.sST.size = sizeof(uint8_t);
-   DU_ALLOC((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList\
-	 .list.array[sliceId]->sNSSAI.sST.buf,(*ieExtend)->list.array[idx]->\
-	 extensionValue.choice.SliceSupportList.\
-	 list.array[sliceId]->sNSSAI.sST.size);
-   if((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList\
-	 .list.array[sliceId]->sNSSAI.sST.buf == NULLP)
-   {
-      return RFAILED;
-   }
-   (*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-      list.array[sliceId]->sNSSAI.sST.buf[0] = 3;
-   DU_ALLOC((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-	 list.array[sliceId]->sNSSAI.sD,sizeof(OCTET_STRING_t));
-   if((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-	 list.array[sliceId]->sNSSAI.sD == NULLP)
-   {
-      return RFAILED;
-   }
-   (*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-      list.array[sliceId]->sNSSAI.sD->size = 3*sizeof(uint8_t);
-   DU_ALLOC((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-	 list.array[sliceId]->sNSSAI.sD->buf,(*ieExtend)->list.array[idx]->extensionValue.choice.\
-	 SliceSupportList.list.array[sliceId]->sNSSAI.sD->size);
-   if((*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-	 list.array[sliceId]->sNSSAI.sD->buf == NULLP)
-   {
-      return RFAILED;
-   }
-   sdId = 0;
-   (*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-      list.array[sliceId]->sNSSAI.sD->buf[sdId] = 3;
-   sdId++;
-   (*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-      list.array[sliceId]->sNSSAI.sD->buf[sdId] = 6;
-   sdId++;
-   (*ieExtend)->list.array[idx]->extensionValue.choice.SliceSupportList.\
-      list.array[sliceId]->sNSSAI.sD->buf[sdId] = 9;
    return ROK;
 }
 /*******************************************************************
@@ -1253,49 +1418,52 @@ uint8_t BuildRrcVer(RRC_Version_t *rrcVer)
    }
    rrcVer->latest_RRC_Version.buf[0] = 0;
    rrcVer->latest_RRC_Version.bits_unused = 5;
-   DU_ALLOC(rrcVer->iE_Extensions,sizeof(ProtocolExtensionContainer_4624P81_t));
-   if(rrcVer->iE_Extensions == NULLP)
-   {  
-      return RFAILED;
-   }
-   rrcVer->iE_Extensions->list.count = 1;
-   rrcVer->iE_Extensions->list.size = sizeof(RRC_Version_ExtIEs_t *);
-   DU_ALLOC(rrcVer->iE_Extensions->list.array,rrcVer->iE_Extensions->list.size);
-   if(rrcVer->iE_Extensions->list.array == NULLP)
-   {
-      return RFAILED;
-   }
-   rrcExt = 0;
-   DU_ALLOC(rrcVer->iE_Extensions->list.array[0],\
-	 sizeof(RRC_Version_ExtIEs_t));
-   if(rrcVer->iE_Extensions->list.array[0] == NULLP)
-   {
-      return RFAILED;
-   }
-   rrcVer->iE_Extensions->list.array[rrcExt]->id = \
-						   ProtocolIE_ID_id_latest_RRC_Version_Enhanced;
-   rrcVer->iE_Extensions->list.array[rrcExt]->criticality = Criticality_reject;
-   rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.present =\
-								      RRC_Version_ExtIEs__extensionValue_PR_Latest_RRC_Version_Enhanced;
-   rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.choice\
-      .Latest_RRC_Version_Enhanced.size = 3*sizeof(uint8_t);
-   DU_ALLOC(rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.choice\
-	 .Latest_RRC_Version_Enhanced.buf,rrcVer->iE_Extensions->list.\
-	 array[rrcExt]->extensionValue.choice.Latest_RRC_Version_Enhanced.size);
-   if(rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.choice\
-	 .Latest_RRC_Version_Enhanced.buf == NULLP)
-   {
-      return RFAILED;
-   }
-   rrcLatest = 0;
-   rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.choice.\
-      Latest_RRC_Version_Enhanced.buf[rrcLatest] = 15;
-   rrcLatest++;
-   rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.choice.\
-      Latest_RRC_Version_Enhanced.buf[rrcLatest] = 5;
-   rrcLatest++;
-   rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.choice.\
-      Latest_RRC_Version_Enhanced.buf[rrcLatest] = 0;
+
+   // [MWNL OSC_OAI] Do not needed to send RRC extensions, due to OAI CU cannot decode, otherwise you want to add related RRC extension ASN.1 structure in OAI CU
+   
+   // DU_ALLOC(rrcVer->iE_Extensions,sizeof(ProtocolExtensionContainer_4624P81_t));
+   // if(rrcVer->iE_Extensions == NULLP)
+   // {  
+   //    return RFAILED;
+   // }
+   // rrcVer->iE_Extensions->list.count = 1;
+   // rrcVer->iE_Extensions->list.size = sizeof(RRC_Version_ExtIEs_t *);
+   // DU_ALLOC(rrcVer->iE_Extensions->list.array,rrcVer->iE_Extensions->list.size);
+   // if(rrcVer->iE_Extensions->list.array == NULLP)
+   // {
+   //    return RFAILED;
+   // }
+   // rrcExt = 0;
+   // DU_ALLOC(rrcVer->iE_Extensions->list.array[0],\
+	//  sizeof(RRC_Version_ExtIEs_t));
+   // if(rrcVer->iE_Extensions->list.array[0] == NULLP)
+   // {
+   //    return RFAILED;
+   // }
+   // rrcVer->iE_Extensions->list.array[rrcExt]->id = \
+	// 					   ProtocolIE_ID_id_latest_RRC_Version_Enhanced;
+   // rrcVer->iE_Extensions->list.array[rrcExt]->criticality = Criticality_reject;
+   // rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.present =\
+	// 							      RRC_Version_ExtIEs__extensionValue_PR_Latest_RRC_Version_Enhanced;
+   // rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.choice\
+   //    .Latest_RRC_Version_Enhanced.size = 3*sizeof(uint8_t);
+   // DU_ALLOC(rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.choice\
+	//  .Latest_RRC_Version_Enhanced.buf,rrcVer->iE_Extensions->list.\
+	//  array[rrcExt]->extensionValue.choice.Latest_RRC_Version_Enhanced.size);
+   // if(rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.choice\
+	//  .Latest_RRC_Version_Enhanced.buf == NULLP)
+   // {
+   //    return RFAILED;
+   // }
+   // rrcLatest = 0;
+   // rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.choice.\
+   //    Latest_RRC_Version_Enhanced.buf[rrcLatest] = 15;
+   // rrcLatest++;
+   // rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.choice.\
+   //    Latest_RRC_Version_Enhanced.buf[rrcLatest] = 5;
+   // rrcLatest++;
+   // rrcVer->iE_Extensions->list.array[rrcExt]->extensionValue.choice.\
+   //    Latest_RRC_Version_Enhanced.buf[rrcLatest] = 0;
    return ROK;
 }
 /*******************************************************************
@@ -1333,9 +1501,9 @@ uint8_t sendF1APMsg()
       }
       else
       {
-	 DU_LOG("\nERROR  -->  F1AP : ODU_ADD_POST_MSG_MULT failed");
-	 ODU_PUT_MSG_BUF(mBuf);
-	 return RFAILED;
+         DU_LOG("\nERROR  -->  F1AP : ODU_ADD_POST_MSG_MULT failed");
+         ODU_PUT_MSG_BUF(mBuf);
+         return RFAILED;
       }
       ODU_PUT_MSG_BUF(mBuf);
    }
@@ -1388,6 +1556,90 @@ void FreeRrcVer(RRC_Version_t *rrcVer)
       DU_FREE(rrcVer->latest_RRC_Version.buf,rrcVer->latest_RRC_Version.size);
    }
 }
+
+/*******************************************************************
+ *
+ * @brief Deallocating memory of TDD NrFreqInfo 
+ *
+ * @details
+ *
+ *    Function : freeTddNrFreqInfo 
+ *
+ *    Functionality: freeTddNrFreqInfo 
+ *
+ * @params[in]  F1AP_PDU_t *f1apDuCfg
+ *
+ * @return ROK     - void
+ *
+ * ****************************************************************/
+void freeTddNrFreqInfo(NRFreqInfo_t *freqInfo)
+{
+   uint8_t freqBandListIdx = 0, supportedBandIdx = 0;
+
+   if(freqInfo->freqBandListNr.list.array)
+   {
+      for(freqBandListIdx = 0; freqBandListIdx<freqInfo->freqBandListNr.list.count; freqBandListIdx++)
+      {
+         if(freqInfo->freqBandListNr.list.array[freqBandListIdx])
+         {
+            if(freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.array)
+            {
+               for(supportedBandIdx = 0; supportedBandIdx<freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.count; supportedBandIdx++)
+               {
+                  DU_FREE(freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.array[supportedBandIdx],\
+                        sizeof(SupportedSULFreqBandItem_t));
+               }
+               DU_FREE(freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.array,\
+                     freqInfo->freqBandListNr.list.array[freqBandListIdx]->supportedSULBandList.list.size);
+
+            }
+            DU_FREE(freqInfo->freqBandListNr.list.array[freqBandListIdx],  sizeof(FreqBandNrItem_t ));
+         }
+      }
+      DU_FREE(freqInfo->freqBandListNr.list.array, freqInfo->freqBandListNr.list.size );
+   }
+}
+
+/*******************************************************************
+ *
+ * @brief Deallocating memory allocated for Nr fdd frequencey mode 
+ *
+ * @details
+ *
+ *    Function : freeFddNrFreqInfo 
+ *
+ *    Functionality:Free memory allocated for Nr fdd frequencey mode 
+ *
+ * @params[in]  
+ *
+ * @return ROK     - void
+ *
+ * ****************************************************************/
+void freeFddNrFreqInfo(FDD_Info_t *fDD)
+{
+   uint8_t arrIdx =0;
+
+   if(fDD != NULLP)
+   {
+      if(fDD->uL_NRFreqInfo.freqBandListNr.list.array != NULLP)
+      {
+         DU_FREE(fDD->uL_NRFreqInfo.freqBandListNr.list.\
+               array[arrIdx], sizeof(FreqBandNrItem_t));
+         DU_FREE(fDD->uL_NRFreqInfo.freqBandListNr.list.array, \
+               fDD->uL_NRFreqInfo.freqBandListNr.list.size);
+      }
+
+      if(fDD->dL_NRFreqInfo.freqBandListNr.list.array != NULLP)
+      {
+         DU_FREE(fDD->dL_NRFreqInfo.freqBandListNr.list.\
+               array[arrIdx], sizeof(FreqBandNrItem_t));
+         DU_FREE(fDD->dL_NRFreqInfo.freqBandListNr.list.array,\
+               fDD->dL_NRFreqInfo.freqBandListNr.list.size);
+      }
+      DU_FREE(fDD,sizeof(FDD_Info_t));
+   }
+}
+
 /*******************************************************************
  *
  * @brief  deallocating the memory of function BuildAndSendF1SetupReq()
@@ -1406,10 +1658,9 @@ void FreeRrcVer(RRC_Version_t *rrcVer)
  * ****************************************************************/
 void FreeServedCellList( GNB_DU_Served_Cells_List_t *duServedCell)
 {
-   uint8_t   plmnCnt=1;
-   uint8_t  sliceId=0;
-   uint8_t  extensionCnt=1;
-   uint8_t  plmnIdx=0;
+   uint8_t   plmnCnt=MAX_PLMN;
+   uint8_t  extensionCnt=IE_EXTENSION_LIST_COUNT;
+   uint8_t  plmnIdx=0, sliceIdx=0;
    GNB_DU_Served_Cells_Item_t *srvCellItem;
    ServedPLMNs_Item_t  *servedPlmnItem;
    SliceSupportItem_t  *sliceSupportItem;
@@ -1437,7 +1688,7 @@ void FreeServedCellList( GNB_DU_Served_Cells_List_t *duServedCell)
             if(srvCellItem->served_Cell_Information.servedPLMNs.list.array[plmnIdx] != NULLP)
             {
                servedPlmnItem = srvCellItem->served_Cell_Information.servedPLMNs.list.array[plmnIdx];
-               DU_FREE(servedPlmnItem->pLMN_Identity.buf, servedPlmnItem->pLMN_Identity.size * sizeof(uint8_t));
+               DU_FREE(servedPlmnItem->pLMN_Identity.buf, servedPlmnItem->pLMN_Identity.size);
 
                if(servedPlmnItem->iE_Extensions != NULLP)
                {
@@ -1445,62 +1696,63 @@ void FreeServedCellList( GNB_DU_Served_Cells_List_t *duServedCell)
                   {
                      if(servedPlmnItem->iE_Extensions->list.array[0] != NULLP)
                      {
-                        if(servedPlmnItem->iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.list.\
-                              array != NULLP)
+                        if(servedPlmnItem->iE_Extensions->list.array[0]->extensionValue.choice.\
+                              SliceSupportList.list.array != NULLP)
                         {
-                           if(servedPlmnItem->iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.list.\
-                                 array[sliceId] != NULLP)
+                           for(sliceIdx =0; sliceIdx<servedPlmnItem->iE_Extensions->list.array[0]->\
+                                 extensionValue.choice.SliceSupportList.list.count; sliceIdx++)
                            {
-                              sliceSupportItem = servedPlmnItem->iE_Extensions->list.array[0]->extensionValue.choice.\
-                                                 SliceSupportList.list.array[sliceId];
-
-                              DU_FREE(sliceSupportItem->sNSSAI.sST.buf, sizeof(uint8_t));
-
-                              if(sliceSupportItem->sNSSAI.sD != NULLP)
+                              if(servedPlmnItem->iE_Extensions->list.array[0]->extensionValue.choice.\
+                                    SliceSupportList.list.array[sliceIdx] != NULLP)
                               {
-                                 DU_FREE(sliceSupportItem->sNSSAI.sD->buf, sliceSupportItem->sNSSAI.sD->size);
-                                 DU_FREE(sliceSupportItem->sNSSAI.sD, sizeof(OCTET_STRING_t));
-                              }
+                                 sliceSupportItem = servedPlmnItem->iE_Extensions->list.array[0]->\
+                                                    extensionValue.choice.SliceSupportList.list.array[sliceIdx];
 
-                              DU_FREE(servedPlmnItem->iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-                                    list.array[sliceId], sizeof(SliceSupportItem_t));
+                                 DU_FREE(sliceSupportItem->sNSSAI.sST.buf, sizeof(uint8_t));
+
+                                 if(sliceSupportItem->sNSSAI.sD != NULLP)
+                                 {
+                                    DU_FREE(sliceSupportItem->sNSSAI.sD->buf,\
+                                          sliceSupportItem->sNSSAI.sD->size);
+                                    DU_FREE(sliceSupportItem->sNSSAI.sD, sizeof(OCTET_STRING_t));
+                                 }
+
+                                 DU_FREE(servedPlmnItem->iE_Extensions->list.array[0]->extensionValue.\
+                                       choice.SliceSupportList.list.array[sliceIdx], sizeof(SliceSupportItem_t));
+                              }
                            }
-                           DU_FREE(servedPlmnItem->iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-                                 list.array, sizeof(SliceSupportItem_t*));
+                           DU_FREE(servedPlmnItem->iE_Extensions->list.array[0]->extensionValue.choice.\
+                                 SliceSupportList.list.array, servedPlmnItem->iE_Extensions->list.array[0]->\
+                                 extensionValue.choice.SliceSupportList.list.size);
                         }
-                        DU_FREE(servedPlmnItem->iE_Extensions->list.array[0], sizeof(ServedPLMNs_ItemExtIEs_t));
+                        DU_FREE(servedPlmnItem->iE_Extensions->list.array[0],\
+                              sizeof(ServedPLMNs_ItemExtIEs_t));
                      }
-                     DU_FREE(servedPlmnItem->iE_Extensions->list.array, extensionCnt*sizeof(ServedPLMNs_ItemExtIEs_t*));
+                     DU_FREE(servedPlmnItem->iE_Extensions->list.array,\
+                           extensionCnt*sizeof(ServedPLMNs_ItemExtIEs_t*));
                   }
                   DU_FREE(servedPlmnItem->iE_Extensions, sizeof(ProtocolExtensionContainer_4624P3_t));
                }
-               DU_FREE(srvCellItem->served_Cell_Information.servedPLMNs.list.array[plmnIdx], sizeof(ServedPLMNs_Item_t));
+               DU_FREE(srvCellItem->served_Cell_Information.servedPLMNs.list.array[plmnIdx],\
+                     sizeof(ServedPLMNs_Item_t));
             }
-            DU_FREE(srvCellItem->served_Cell_Information.servedPLMNs.list.array, sizeof(ServedPLMNs_Item_t *));
+            DU_FREE(srvCellItem->served_Cell_Information.servedPLMNs.list.array,\
+                  sizeof(ServedPLMNs_Item_t *));
          }
 
-         if(srvCellItem->served_Cell_Information.nR_Mode_Info.choice.fDD != NULLP)
+         if(srvCellItem->served_Cell_Information.nR_Mode_Info.present == NR_Mode_Info_PR_fDD)
          {
-            if(srvCellItem->served_Cell_Information.nR_Mode_Info.choice.fDD->uL_NRFreqInfo.\
-                  freqBandListNr.list.array != NULLP)
-            {
-               DU_FREE(srvCellItem->served_Cell_Information.nR_Mode_Info.choice.fDD->uL_NRFreqInfo.freqBandListNr.\
-                     list.array[0],sizeof(FreqBandNrItem_t));
-               DU_FREE(srvCellItem->served_Cell_Information.nR_Mode_Info.choice.fDD->uL_NRFreqInfo.freqBandListNr.\
-                     list.array,sizeof(FreqBandNrItem_t*));
-            }
-
-            if(srvCellItem->served_Cell_Information.nR_Mode_Info.choice.fDD->dL_NRFreqInfo.\
-                  freqBandListNr.list.array)
-            {
-               DU_FREE(srvCellItem->served_Cell_Information.nR_Mode_Info.choice.fDD->dL_NRFreqInfo.\
-                     freqBandListNr.list.array[0],sizeof(FreqBandNrItem_t));
-               DU_FREE(srvCellItem->served_Cell_Information.nR_Mode_Info.choice.fDD->dL_NRFreqInfo.\
-                     freqBandListNr.list.array,sizeof(FreqBandNrItem_t *));
-            }
-            DU_FREE(srvCellItem->served_Cell_Information.nR_Mode_Info.choice.fDD, sizeof(FDD_Info_t));
+            freeFddNrFreqInfo(srvCellItem->served_Cell_Information.nR_Mode_Info.choice.fDD);
          }
-
+         else   
+         {
+            if(srvCellItem->served_Cell_Information.nR_Mode_Info.choice.tDD != NULLP)
+            {
+               freeTddNrFreqInfo(&srvCellItem->served_Cell_Information.nR_Mode_Info.choice.tDD->nRFreqInfo);
+               DU_FREE(srvCellItem->served_Cell_Information.nR_Mode_Info.choice.tDD, sizeof(TDD_Info_t));
+            }
+         }
+         
          DU_FREE(srvCellItem->served_Cell_Information.measurementTimingConfiguration.buf,\
                srvCellItem->served_Cell_Information.measurementTimingConfiguration.size);
 
@@ -1613,9 +1865,9 @@ uint8_t BuildAndSendF1SetupReq()
 {
    uint8_t   ret, ieIdx, elementCnt;
    F1AP_PDU_t                 *f1apMsg = NULLP;
-   F1SetupRequest_t           *f1SetupReq=NULLP;
-   GNB_DU_Served_Cells_List_t *duServedCell=NULLP;
-   RRC_Version_t              *rrcVer=NULLP;
+   F1SetupRequest_t           *f1SetupReq = NULLP;
+   GNB_DU_Served_Cells_List_t *duServedCell = NULLP;
+   RRC_Version_t              *rrcVer = NULLP;
    asn_enc_rval_t             encRetVal;        /* Encoder return value */
    ret= RFAILED;
 
@@ -1625,13 +1877,13 @@ uint8_t BuildAndSendF1SetupReq()
       DU_ALLOC(f1apMsg, sizeof(F1AP_PDU_t));
       if(f1apMsg == NULLP)
       {
-	 break;
+	      break;
       }
       f1apMsg->present = F1AP_PDU_PR_initiatingMessage;
       DU_ALLOC(f1apMsg->choice.initiatingMessage, sizeof(InitiatingMessage_t));
       if(f1apMsg->choice.initiatingMessage == NULLP)
       {
-	 break;
+	      break;
       }
       f1apMsg->choice.initiatingMessage->procedureCode = ProcedureCode_id_F1Setup;
       f1apMsg->choice.initiatingMessage->criticality = Criticality_reject;
@@ -1649,16 +1901,16 @@ uint8_t BuildAndSendF1SetupReq()
       DU_ALLOC(f1SetupReq->protocolIEs.list.array,f1SetupReq->protocolIEs.list.size);
       if(f1SetupReq->protocolIEs.list.array == NULLP)
       {
-	 break;
+	      break;
       }
       for(ieIdx=0; ieIdx<elementCnt; ieIdx++)
       {
-	 DU_ALLOC(f1SetupReq->protocolIEs.list.array[ieIdx],\
-	       sizeof(F1SetupRequestIEs_t));
-	 if(f1SetupReq->protocolIEs.list.array[ieIdx] == NULLP)
-	 {
-	    break;
-	 }
+         DU_ALLOC(f1SetupReq->protocolIEs.list.array[ieIdx],\
+               sizeof(F1SetupRequestIEs_t));
+         if(f1SetupReq->protocolIEs.list.array[ieIdx] == NULLP)
+         {
+            break;
+         }
       }
 
       ieIdx = 0;
@@ -1684,7 +1936,7 @@ uint8_t BuildAndSendF1SetupReq()
       if(f1SetupReq->protocolIEs.list.array[ieIdx]->value.choice.GNB_DU_ID.buf == \
 	    NULLP)
       {
-	 break;
+	      break;
       }
 
       f1SetupReq->protocolIEs.list.array[ieIdx]->value.choice.GNB_DU_ID.buf[0] =\
@@ -1693,23 +1945,22 @@ uint8_t BuildAndSendF1SetupReq()
       /*DU Name*/
       if(duCfgParam.duName != NULL)
       {
-	 ieIdx++;
-	 f1SetupReq->protocolIEs.list.array[ieIdx]->id = ProtocolIE_ID_id_gNB_DU_Name;
-	 f1SetupReq->protocolIEs.list.array[ieIdx]->criticality = Criticality_ignore;
-	 f1SetupReq->protocolIEs.list.array[ieIdx]->value.present = F1SetupRequestIEs__value_PR_GNB_DU_Name;
-	 f1SetupReq->protocolIEs.list.array[ieIdx]->value.choice.GNB_DU_Name.size =\
-	    strlen((char *)duCfgParam.duName);
-	 DU_ALLOC(f1SetupReq->protocolIEs.list.array[ieIdx]->value.choice.\
-	       GNB_DU_Name.buf, strlen((char *)duCfgParam.duName));
-	 if(f1SetupReq->protocolIEs.list.array[ieIdx]->value.choice.GNB_DU_Name.\
-	       buf == NULLP)
-	 {
-	    break;
-	 }
-	 strcpy((char*)f1SetupReq->protocolIEs.list.array[ieIdx]->value.\
-	       choice.GNB_DU_Name.buf,
-	       (char*)&duCfgParam.duName);
-
+         ieIdx++;
+         f1SetupReq->protocolIEs.list.array[ieIdx]->id = ProtocolIE_ID_id_gNB_DU_Name;
+         f1SetupReq->protocolIEs.list.array[ieIdx]->criticality = Criticality_ignore;
+         f1SetupReq->protocolIEs.list.array[ieIdx]->value.present = F1SetupRequestIEs__value_PR_GNB_DU_Name;
+         f1SetupReq->protocolIEs.list.array[ieIdx]->value.choice.GNB_DU_Name.size =\
+            strlen((char *)duCfgParam.duName);
+         DU_ALLOC(f1SetupReq->protocolIEs.list.array[ieIdx]->value.choice.\
+               GNB_DU_Name.buf, strlen((char *)duCfgParam.duName));
+         if(f1SetupReq->protocolIEs.list.array[ieIdx]->value.choice.GNB_DU_Name.\
+               buf == NULLP)
+         {
+            break;
+         }
+         strcpy((char*)f1SetupReq->protocolIEs.list.array[ieIdx]->value.\
+               choice.GNB_DU_Name.buf,
+               (char*)&duCfgParam.duName);
       }
 
       /*Served Cell list */
@@ -1723,7 +1974,7 @@ uint8_t BuildAndSendF1SetupReq()
 		     array[ieIdx]->value.choice.GNB_DU_Served_Cells_List;
       if(BuildServedCellList(duServedCell))
       {
-	 break;
+	      break;
       }
       /*RRC Version*/
       ieIdx++;
@@ -1735,7 +1986,7 @@ uint8_t BuildAndSendF1SetupReq()
       rrcVer = &f1SetupReq->protocolIEs.list.array[ieIdx]->value.choice.RRC_Version;
       if(BuildRrcVer(rrcVer))
       {
-	 break;
+	      break;
       }
       xer_fprint(stdout, &asn_DEF_F1AP_PDU, f1apMsg);
 
@@ -1748,24 +1999,24 @@ uint8_t BuildAndSendF1SetupReq()
       /* Encode results */
       if(encRetVal.encoded == ENCODE_FAIL)
       {
-	 DU_LOG("\nERROR  -->  F1AP : Could not encode F1SetupRequest structure (at %s)\n",\
-	       encRetVal.failed_type ? encRetVal.failed_type->name : "unknown");
-	 break;
+	      DU_LOG("\nERROR  -->  F1AP : Could not encode F1SetupRequest structure (at %s)\n",\
+	         encRetVal.failed_type ? encRetVal.failed_type->name : "unknown");
+	      break;
       }
       else
       {
-	 DU_LOG("\nDEBUG   -->  F1AP : Created APER encoded buffer for F1SetupRequest\n");
-	 for(ieIdx=0; ieIdx< encBufSize; ieIdx++)
-	 {
-	    printf("%x",encBuf[ieIdx]);
-	 }
+	      DU_LOG("\nDEBUG   -->  F1AP : Created APER encoded buffer for F1SetupRequest\n");
+         for(ieIdx=0; ieIdx< encBufSize; ieIdx++)
+         {
+            printf("%x",encBuf[ieIdx]);
+         }
       }
 
       /* Sending msg */
       if(sendF1APMsg() != ROK)
       {
-	 DU_LOG("\nERROR  -->  F1AP : Sending F1 Setup request failed");
-	 break;
+         DU_LOG("\nERROR  -->  F1AP : Sending F1 Setup request failed");
+         break;
       }
 
       ret=ROK;
@@ -1796,7 +2047,7 @@ uint8_t BuildAndSendF1SetupReq()
 
 void freeCellsToModifyItem(Served_Cells_To_Modify_Item_t *modifyItem)
 {
-   uint8_t arrIdx=0,i=0;
+   uint8_t arrIdx=0, servedPlmnIdx=0, sliceLstIdx=0;
    ServedPLMNs_Item_t *servedPlmnItem = NULLP;
    SliceSupportItem_t *sliceSupportItem = NULLP;
 
@@ -1822,63 +2073,64 @@ void freeCellsToModifyItem(Served_Cells_To_Modify_Item_t *modifyItem)
             {
                if(servedPlmnItem->iE_Extensions->list.array[arrIdx] != NULLP)
                {
-                  if(servedPlmnItem->iE_Extensions->list.array[arrIdx]->extensionValue.choice.SliceSupportList.list.array != NULLP)
+                  if(servedPlmnItem->iE_Extensions->list.array[arrIdx]->extensionValue.choice.SliceSupportList.\
+                        list.array != NULLP)
                   {
-                     if(servedPlmnItem->iE_Extensions->list.array[arrIdx]->extensionValue.choice.SliceSupportList.list.array[arrIdx] != NULLP)
+                     for(sliceLstIdx =0; sliceLstIdx<servedPlmnItem->iE_Extensions->list.array[arrIdx]->\
+                           extensionValue.choice.SliceSupportList.list.count; sliceLstIdx++)
                      {
-                        sliceSupportItem = modifyItem->served_Cell_Information.servedPLMNs.list.array[arrIdx]->iE_Extensions->\
-                                           list.array[arrIdx]->extensionValue.choice.SliceSupportList.list.array[arrIdx];
-
-                        DU_FREE(sliceSupportItem->sNSSAI.sST.buf, sliceSupportItem->sNSSAI.sST.size);
-                        if(sliceSupportItem->sNSSAI.sD != NULLP)
+                        if(servedPlmnItem->iE_Extensions->list.array[arrIdx]->extensionValue.choice.SliceSupportList.\
+                              list.array[sliceLstIdx] != NULLP)
                         {
-                           DU_FREE(sliceSupportItem->sNSSAI.sD->buf, sliceSupportItem->sNSSAI.sD->size);
-                           DU_FREE(sliceSupportItem->sNSSAI.sD,sizeof(OCTET_STRING_t));
+
+                           sliceSupportItem = servedPlmnItem->iE_Extensions->list.array[arrIdx]->extensionValue.choice.\
+                                              SliceSupportList.list.array[sliceLstIdx];
+
+                           DU_FREE(sliceSupportItem->sNSSAI.sST.buf, sliceSupportItem->sNSSAI.sST.size);
+                           if(sliceSupportItem->sNSSAI.sD != NULLP)
+                           {
+                              DU_FREE(sliceSupportItem->sNSSAI.sD->buf, sliceSupportItem->sNSSAI.sD->size);
+                              DU_FREE(sliceSupportItem->sNSSAI.sD,sizeof(OCTET_STRING_t));
+                           }
+                           DU_FREE(servedPlmnItem->iE_Extensions->list.array[arrIdx]->extensionValue.choice.\
+                                 SliceSupportList.list.array[sliceLstIdx], sizeof(SliceSupportItem_t));
                         }
-                        DU_FREE(servedPlmnItem->iE_Extensions->list.array[arrIdx]->extensionValue.choice.SliceSupportList.\
-                              list.array[arrIdx], sizeof(SliceSupportItem_t));
                      }
-                     DU_FREE(servedPlmnItem->iE_Extensions->list.array[arrIdx]->extensionValue.choice.SliceSupportList.list.array,
-                           servedPlmnItem->iE_Extensions->list.array[arrIdx]->extensionValue.choice.SliceSupportList.list.size);
+                     DU_FREE(servedPlmnItem->iE_Extensions->list.array[arrIdx]->extensionValue.\
+                           choice.SliceSupportList.list.array,\
+                           servedPlmnItem->iE_Extensions->list.array[arrIdx]->\
+                           extensionValue.choice.SliceSupportList.list.size);
                   }
                }
-               for(i=0; i < servedPlmnItem->iE_Extensions->list.count ; i++)
+               for(servedPlmnIdx=0; servedPlmnIdx< servedPlmnItem->iE_Extensions->list.count ; servedPlmnIdx++)
                {
-                  DU_FREE(servedPlmnItem->iE_Extensions->list.array[i], sizeof(ServedPLMNs_ItemExtIEs_t ));
+                  DU_FREE(servedPlmnItem->iE_Extensions->list.array[servedPlmnIdx], sizeof(ServedPLMNs_ItemExtIEs_t ));
                }
                DU_FREE(servedPlmnItem->iE_Extensions->list.array, servedPlmnItem->iE_Extensions->list.size);
             }
             DU_FREE(servedPlmnItem->iE_Extensions,sizeof(ProtocolExtensionContainer_4624P3_t));
          }
       }
-      for(i=0;i<modifyItem->served_Cell_Information.servedPLMNs.list.count;i++)
+      for(servedPlmnIdx=0; servedPlmnIdx<modifyItem->served_Cell_Information.servedPLMNs.list.count; servedPlmnIdx++)
       {
-         DU_FREE(modifyItem->served_Cell_Information.servedPLMNs.list.array[i], sizeof(ServedPLMNs_Item_t));
+         DU_FREE(modifyItem->served_Cell_Information.servedPLMNs.list.array[servedPlmnIdx], sizeof(ServedPLMNs_Item_t));
       }
       DU_FREE(modifyItem->served_Cell_Information.servedPLMNs.list.array,\
-            modifyItem->served_Cell_Information.servedPLMNs.list.size);
+         modifyItem->served_Cell_Information.servedPLMNs.list.size);
    }
-
-   if(modifyItem->served_Cell_Information.nR_Mode_Info.choice.fDD != NULLP)
+   
+   if(modifyItem->served_Cell_Information.nR_Mode_Info.present == NR_Mode_Info_PR_fDD)
    {
-      if(modifyItem->served_Cell_Information.nR_Mode_Info.choice.fDD->uL_NRFreqInfo.freqBandListNr.list.array != NULLP)
+      freeFddNrFreqInfo(modifyItem->served_Cell_Information.nR_Mode_Info.choice.fDD);
+   }  
+   else
+   {
+      if(modifyItem->served_Cell_Information.nR_Mode_Info.choice.tDD)
       {
-         DU_FREE(modifyItem->served_Cell_Information.nR_Mode_Info.choice.fDD->uL_NRFreqInfo.freqBandListNr.list.\
-               array[arrIdx], sizeof(FreqBandNrItem_t));
-         DU_FREE(modifyItem->served_Cell_Information.nR_Mode_Info.choice.fDD->uL_NRFreqInfo.freqBandListNr.list.array, \
-               modifyItem->served_Cell_Information.nR_Mode_Info.choice.fDD->uL_NRFreqInfo.freqBandListNr.list.size);
+         freeTddNrFreqInfo(&modifyItem->served_Cell_Information.nR_Mode_Info.choice.tDD->nRFreqInfo);
+         DU_FREE(modifyItem->served_Cell_Information.nR_Mode_Info.choice.tDD, sizeof(TDD_Info_t));
       }
-
-      if(modifyItem->served_Cell_Information.nR_Mode_Info.choice.fDD->dL_NRFreqInfo.freqBandListNr.list.array != NULLP)
-      {
-         DU_FREE(modifyItem->served_Cell_Information.nR_Mode_Info.choice.fDD->dL_NRFreqInfo.freqBandListNr.list.\
-             array[arrIdx], sizeof(FreqBandNrItem_t));
-         DU_FREE(modifyItem->served_Cell_Information.nR_Mode_Info.choice.fDD->dL_NRFreqInfo.freqBandListNr.list.array,\
-               modifyItem->served_Cell_Information.nR_Mode_Info.choice.fDD->dL_NRFreqInfo.freqBandListNr.list.size);
-      }
-      DU_FREE(modifyItem->served_Cell_Information.nR_Mode_Info.choice.fDD,sizeof(FDD_Info_t));
    }
-
    DU_FREE(modifyItem->served_Cell_Information.measurementTimingConfiguration.buf,\
       modifyItem->served_Cell_Information.measurementTimingConfiguration.size);
 }
@@ -2006,119 +2258,135 @@ void FreeDUConfigUpdate(F1AP_PDU_t *f1apDuCfg)
 
 uint8_t fillServedPlmns(ServedPLMNs_List_t *servedPlmn)
 {
-   uint8_t ieIdx, ieListCnt;
+   uint8_t ieIdx=0, arrayIdx=0, ieListCnt=0, elementCnt=0, sliceLstIdx=0;
 
-   servedPlmn->list.array[0]->pLMN_Identity.size = 3*sizeof(uint8_t);
-   DU_ALLOC(servedPlmn->list.array[0]->pLMN_Identity.buf, servedPlmn->list.\
-	 array[0]->pLMN_Identity.size);
-   if(servedPlmn->list.array[0]->pLMN_Identity.buf == NULLP)
+   servedPlmn->list.array[arrayIdx]->pLMN_Identity.size = 3*sizeof(uint8_t);
+   DU_ALLOC(servedPlmn->list.array[arrayIdx]->pLMN_Identity.buf, servedPlmn->list.\
+         array[arrayIdx]->pLMN_Identity.size);
+   if(servedPlmn->list.array[arrayIdx]->pLMN_Identity.buf == NULLP)
    {
+      DU_LOG("ERROR  --> DU_APP : fillServedPlmns(): Memory allocation failed");
       return RFAILED;
    }
-   buildPlmnId(duCfgParam.srvdCellLst[0].duCellInfo.cellInfo.plmn[0],\
-	 servedPlmn->list.array[0]->pLMN_Identity.buf);
-   DU_ALLOC(servedPlmn->list.array[0]->iE_Extensions,sizeof(ProtocolExtensionContainer_4624P3_t));
-   if(servedPlmn->list.array[0]->iE_Extensions == NULLP)
+   buildPlmnId(duCfgParam.srvdCellLst[arrayIdx].duCellInfo.cellInfo.srvdPlmn[arrayIdx].plmn,\
+         servedPlmn->list.array[arrayIdx]->pLMN_Identity.buf);
+   DU_ALLOC(servedPlmn->list.array[arrayIdx]->iE_Extensions,sizeof(ProtocolExtensionContainer_4624P3_t));
+   if(servedPlmn->list.array[arrayIdx]->iE_Extensions == NULLP)
    {
+      DU_LOG("ERROR  --> DU_APP : fillServedPlmns(): Memory allocation failed");
       return RFAILED;
    }
 
    ieListCnt=1;
-   servedPlmn->list.array[0]->iE_Extensions->list.count = ieListCnt;
-   servedPlmn->list.array[0]->iE_Extensions->list.size = ieListCnt *sizeof(ServedPLMNs_ItemExtIEs_t *);
-   DU_ALLOC(servedPlmn->list.array[0]->iE_Extensions->list.array,servedPlmn->list.array[0]->\
-	 iE_Extensions->list.size);
-   if(servedPlmn->list.array[0]->iE_Extensions->list.array == NULLP)
+   servedPlmn->list.array[arrayIdx]->iE_Extensions->list.count = ieListCnt;
+   servedPlmn->list.array[arrayIdx]->iE_Extensions->list.size = ieListCnt *sizeof(ServedPLMNs_ItemExtIEs_t *);
+   DU_ALLOC(servedPlmn->list.array[arrayIdx]->iE_Extensions->list.array,servedPlmn->list.array[arrayIdx]->\
+         iE_Extensions->list.size);
+   if(servedPlmn->list.array[arrayIdx]->iE_Extensions->list.array == NULLP)
    {
+      DU_LOG("ERROR  --> DU_APP : fillServedPlmns(): Memory allocation failed");
       return RFAILED;
    }
-   for(ieIdx=0;ieIdx<ieListCnt;ieIdx++)
+   for(ieIdx=arrayIdx;ieIdx<ieListCnt;ieIdx++)
    {
-      DU_ALLOC(servedPlmn->list.array[0]->iE_Extensions->list.array[ieIdx],\
-	    sizeof(ServedPLMNs_ItemExtIEs_t));
-      if(servedPlmn->list.array[0]->iE_Extensions->list.array[ieIdx] == NULLP)
+      DU_ALLOC(servedPlmn->list.array[arrayIdx]->iE_Extensions->list.array[ieIdx],\
+            sizeof(ServedPLMNs_ItemExtIEs_t));
+      if(servedPlmn->list.array[arrayIdx]->iE_Extensions->list.array[ieIdx] == NULLP)
       {
-	 return RFAILED;
+         DU_LOG("ERROR  --> DU_APP : fillServedPlmns(): Memory allocation failed");
+         return RFAILED;
       }
    }
-   //plmnIeExt = servedPlmn->list.array[0]->iE_Extensions; 
-   servedPlmn->list.array[0]->iE_Extensions->list.array[0]->id =ProtocolIE_ID_id_TAISliceSupportList;
-   servedPlmn->list.array[0]->iE_Extensions->list.array[0]->criticality = Criticality_ignore;
-   servedPlmn->list.array[0]->iE_Extensions->list.array[0]->extensionValue.present = \
-      ServedPLMNs_ItemExtIEs__extensionValue_PR_SliceSupportList;
-   servedPlmn->list.array[0]->iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-      list.count = 1;
-   servedPlmn->list.array[0]->\
-      iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-      list.size = sizeof(SliceSupportItem_t *);
-   DU_ALLOC(servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-	 list.array,servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.list.size);
-   if(servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-	 list.array == NULLP)
+   
+   ieIdx = 0;
+   elementCnt = duCfgParam.srvdCellLst[0].duCellInfo.cellInfo.srvdPlmn[0].taiSliceSuppLst.numSupportedSlices; 
+   servedPlmn->list.array[arrayIdx]->iE_Extensions->list.array[ieIdx]->id =ProtocolIE_ID_id_TAISliceSupportList;
+   servedPlmn->list.array[arrayIdx]->iE_Extensions->list.array[ieIdx]->criticality = Criticality_ignore;
+   servedPlmn->list.array[arrayIdx]->iE_Extensions->list.array[ieIdx]->extensionValue.present = \
+   ServedPLMNs_ItemExtIEs__extensionValue_PR_SliceSupportList;
+   servedPlmn->list.array[arrayIdx]->iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.count = elementCnt;
+   servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.size = elementCnt * sizeof(SliceSupportItem_t *);
+   DU_ALLOC(servedPlmn->list.array[arrayIdx]->\
+         iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+         list.array,servedPlmn->list.array[arrayIdx]->\
+         iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.list.size);
+   if(servedPlmn->list.array[arrayIdx]->\
+         iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+         list.array == NULLP)
    {
+      DU_LOG("ERROR  --> DU_APP : fillServedPlmns(): Memory allocation failed");
       return RFAILED;
    }
 
-   DU_ALLOC(servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-	 list.array[0],sizeof( SliceSupportItem_t));
-   if(servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-	 list.array[0] == NULLP)
+   for(sliceLstIdx =0; sliceLstIdx< elementCnt; sliceLstIdx++)
    {
-      return RFAILED;
+      DU_ALLOC(servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx],sizeof( SliceSupportItem_t));
+      if(servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx] == NULLP)
+      {   
+         DU_LOG("ERROR  --> DU_APP : fillServedPlmns(): Memory allocation failed");
+         return RFAILED;
+      }
+      
+      servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sST.size = sizeof(uint8_t);
+      DU_ALLOC(servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sST.buf,servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.list.array[sliceLstIdx]->\
+      sNSSAI.sST.size);
+      
+      if(servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sST.buf == NULLP)
+      {
+         DU_LOG("ERROR  --> DU_APP : fillServedPlmns(): Memory allocation failed");
+         return RFAILED;
+      }
+      servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sST.buf[arrayIdx] =  duCfgParam.srvdCellLst[arrayIdx].duCellInfo.\
+      cellInfo.srvdPlmn[arrayIdx].taiSliceSuppLst.snssai[sliceLstIdx]->sst;
+
+      DU_ALLOC(servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sD,sizeof(OCTET_STRING_t));
+      if(servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sD == NULLP)
+      {
+         DU_LOG("ERROR  --> DU_APP : fillServedPlmns(): Memory allocation failed");
+         return RFAILED;
+      }
+      servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sD->size = 3 * sizeof(uint8_t);
+      DU_ALLOC(servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sD->buf,servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sD->size);
+      if(servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sD->buf == NULLP)
+      {
+         DU_LOG("ERROR  --> DU_APP : fillServedPlmns(): Memory allocation failed");
+         return RFAILED;
+      }
+      memcpy(servedPlmn->list.array[arrayIdx]->\
+      iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sD->buf, duCfgParam.srvdCellLst[arrayIdx].duCellInfo.\
+      cellInfo.srvdPlmn[arrayIdx].taiSliceSuppLst.snssai[sliceLstIdx]->sd,\
+      servedPlmn->list.array[arrayIdx]->iE_Extensions->list.array[ieIdx]->extensionValue.choice.SliceSupportList.\
+      list.array[sliceLstIdx]->sNSSAI.sD->size);
    }
-   servedPlmn->list.array[0]->\
-      iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-      list.array[0]->sNSSAI.sST.size = sizeof(uint8_t);
-   DU_ALLOC(servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-	 list.array[0]->sNSSAI.sST.buf,servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.list.array[0]->sNSSAI.sST.size);
-   if(servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-	 list.array[0]->sNSSAI.sST.buf == NULLP)
-   {
-      return RFAILED;
-   }
-   servedPlmn->list.array[0]->\
-      iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-      list.array[0]->sNSSAI.sST.buf[0] = 3;
-   DU_ALLOC(servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-	 list.array[0]->sNSSAI.sD,sizeof(OCTET_STRING_t));
-   if(servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-	 list.array[0]->sNSSAI.sD == NULLP)
-   {
-      return RFAILED;
-   }
-   servedPlmn->list.array[0]->\
-      iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-      list.array[0]->sNSSAI.sD->size = 3*sizeof(uint8_t);
-   DU_ALLOC(servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-	 list.array[0]->sNSSAI.sD->buf,servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-	 list.array[0]->sNSSAI.sD->size);
-   if(servedPlmn->list.array[0]->\
-	 iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-	 list.array[0]->sNSSAI.sD->buf == NULLP)
-   {
-      return RFAILED;
-   }
-   servedPlmn->list.array[0]->\
-      iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-      list.array[0]->sNSSAI.sD->buf[0] = 3;
-   servedPlmn->list.array[0]->\
-      iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-      list.array[0]->sNSSAI.sD->buf[1] = 6;
-   servedPlmn->list.array[0]->\
-      iE_Extensions->list.array[0]->extensionValue.choice.SliceSupportList.\
-      list.array[0]->sNSSAI.sD->buf[2] = 9;
    return ROK;
 }
 
@@ -2132,64 +2400,70 @@ uint8_t fillServedPlmns(ServedPLMNs_List_t *servedPlmn)
  *
  *    Functionality: Fills Nr Fdd Info required in ServCellInfo IE
  *
- * @params[in] Pointer to NR_Mode_Info_t *
+ * @params[in] FDD_Info_t *fDD
  *
  * @return ROK     - success
  *         RFAILED - failure
  *
  *****************************************************************/
 
-uint8_t fillNrFddInfo(NR_Mode_Info_t *nrFdd)
+uint8_t fillNrFddInfo(FDD_Info_t *fDD)
 {
-   nrFdd->choice.fDD->uL_NRFreqInfo.nRARFCN = duCfgParam.srvdCellLst[0].duCellInfo.\
+   fDD->uL_NRFreqInfo.nRARFCN = duCfgParam.srvdCellLst[0].duCellInfo.\
       f1Mode.mode.fdd.ulNrFreqInfo.nrArfcn;
-   nrFdd->choice.fDD->uL_NRFreqInfo.freqBandListNr.list.count = 1;
-   nrFdd->choice.fDD->uL_NRFreqInfo.freqBandListNr.list.size = sizeof(FreqBandNrItem_t*);
-   DU_ALLOC(nrFdd->choice.fDD->uL_NRFreqInfo.freqBandListNr.list.\
-	 array, nrFdd->choice.fDD->uL_NRFreqInfo.freqBandListNr.list.size);
-   if(nrFdd->choice.fDD->uL_NRFreqInfo.freqBandListNr.list.array == NULLP)
+   fDD->uL_NRFreqInfo.freqBandListNr.list.count = 1;
+   fDD->uL_NRFreqInfo.freqBandListNr.list.size = sizeof(FreqBandNrItem_t*);
+   DU_ALLOC(fDD->uL_NRFreqInfo.freqBandListNr.list.\
+	 array, fDD->uL_NRFreqInfo.freqBandListNr.list.size);
+   if(fDD->uL_NRFreqInfo.freqBandListNr.list.array == NULLP)
    {
+      DU_LOG("\nERROR  --> Memory allocation failed in fillNrFddInfo");
       return RFAILED;
    }
-   DU_ALLOC(nrFdd->choice.fDD->uL_NRFreqInfo.freqBandListNr.list.array[0], \
+
+   DU_ALLOC(fDD->uL_NRFreqInfo.freqBandListNr.list.array[0], \
       sizeof(FreqBandNrItem_t));
-   if(nrFdd->choice.fDD->uL_NRFreqInfo.freqBandListNr.list.array[0] == NULLP)
+   if(fDD->uL_NRFreqInfo.freqBandListNr.list.array[0] == NULLP)
    {
+      DU_LOG("\nERROR  --> Memory allocation failed in fillNrFddInfo");
       return RFAILED;
    }
-   nrFdd->choice.fDD->uL_NRFreqInfo.freqBandListNr.list.array[0]->freqBandIndicatorNr = \
+   
+   fDD->uL_NRFreqInfo.freqBandListNr.list.array[0]->freqBandIndicatorNr = \
       duCfgParam.srvdCellLst[0].duCellInfo.f1Mode.mode.fdd.ulNrFreqInfo.\
       freqBand[0].nrFreqBand;
-   nrFdd->choice.fDD->uL_NRFreqInfo.freqBandListNr.list.array[0]->supportedSULBandList.list.count=0;
-   nrFdd->choice.fDD->dL_NRFreqInfo.nRARFCN = duCfgParam.srvdCellLst[0].duCellInfo.f1Mode.mode.fdd.\
+   fDD->uL_NRFreqInfo.freqBandListNr.list.array[0]->supportedSULBandList.list.count=0;
+   fDD->dL_NRFreqInfo.nRARFCN = duCfgParam.srvdCellLst[0].duCellInfo.f1Mode.mode.fdd.\
       dlNrFreqInfo.nrArfcn;
-   nrFdd->choice.fDD->dL_NRFreqInfo.freqBandListNr.list.count = 1;
-   nrFdd->choice.fDD->dL_NRFreqInfo.freqBandListNr.list.size = sizeof(FreqBandNrItem_t *);
-   DU_ALLOC(nrFdd->choice.fDD->dL_NRFreqInfo.freqBandListNr.list.array,nrFdd->\
-	 choice.fDD->dL_NRFreqInfo.freqBandListNr.list.size);
-   if(nrFdd->choice.fDD->dL_NRFreqInfo.freqBandListNr.list.array == NULLP)
+   fDD->dL_NRFreqInfo.freqBandListNr.list.count = 1;
+   fDD->dL_NRFreqInfo.freqBandListNr.list.size = sizeof(FreqBandNrItem_t *);
+   DU_ALLOC(fDD->dL_NRFreqInfo.freqBandListNr.list.array, fDD->dL_NRFreqInfo.freqBandListNr.list.size);
+   if(fDD->dL_NRFreqInfo.freqBandListNr.list.array == NULLP)
    {
+      DU_LOG("\nERROR  --> Memory allocation failed in fillNrFddInfo");
       return RFAILED;
    }
-   DU_ALLOC(nrFdd->choice.fDD->dL_NRFreqInfo.freqBandListNr.list.array[0],\
-	 sizeof(FreqBandNrItem_t));
-   if(nrFdd->choice.fDD->dL_NRFreqInfo.freqBandListNr.list.array[0] == NULLP)
+   
+   DU_ALLOC(fDD->dL_NRFreqInfo.freqBandListNr.list.array[0],  sizeof(FreqBandNrItem_t));
+   if(fDD->dL_NRFreqInfo.freqBandListNr.list.array[0] == NULLP)
    {
+      DU_LOG("\nERROR  --> Memory allocation failed in fillNrFddInfo");
       return RFAILED;
    }
-   nrFdd->choice.fDD->dL_NRFreqInfo.freqBandListNr.list.array[0]->freqBandIndicatorNr = \
+
+   fDD->dL_NRFreqInfo.freqBandListNr.list.array[0]->freqBandIndicatorNr = \
       duCfgParam.srvdCellLst[0].duCellInfo.f1Mode.mode.fdd.dlNrFreqInfo.\
       freqBand[0].nrFreqBand;
-   nrFdd->choice.fDD->dL_NRFreqInfo.freqBandListNr.list.array[0]->supportedSULBandList.list.count=0;
+   fDD->dL_NRFreqInfo.freqBandListNr.list.array[0]->supportedSULBandList.list.count=0;
    
    /*Transmission Bandwidth*/
-   nrFdd->choice.fDD->uL_Transmission_Bandwidth.nRSCS = duCfgParam.srvdCellLst[0].duCellInfo.\
+   fDD->uL_Transmission_Bandwidth.nRSCS = duCfgParam.srvdCellLst[0].duCellInfo.\
       f1Mode.mode.fdd.ulTxBw.nrScs;
-   nrFdd->choice.fDD->uL_Transmission_Bandwidth.nRNRB = duCfgParam.srvdCellLst[0].duCellInfo.\
+   fDD->uL_Transmission_Bandwidth.nRNRB = duCfgParam.srvdCellLst[0].duCellInfo.\
       f1Mode.mode.fdd.ulTxBw.nrb;
-   nrFdd->choice.fDD->dL_Transmission_Bandwidth.nRSCS = duCfgParam.srvdCellLst[0].duCellInfo.\
+   fDD->dL_Transmission_Bandwidth.nRSCS = duCfgParam.srvdCellLst[0].duCellInfo.\
       f1Mode.mode.fdd.dlTxBw.nrScs;
-   nrFdd->choice.fDD->dL_Transmission_Bandwidth.nRNRB = duCfgParam.srvdCellLst[0].duCellInfo.\
+   fDD->dL_Transmission_Bandwidth.nRNRB = duCfgParam.srvdCellLst[0].duCellInfo.\
       f1Mode.mode.fdd.dlTxBw.nrb;
 
    return ROK;
@@ -2214,7 +2488,7 @@ uint8_t fillNrFddInfo(NR_Mode_Info_t *nrFdd)
 
 uint8_t fillServedCellInfo(Served_Cell_Information_t *srvCellInfo)
 {
-   uint8_t tmp, ieIdx, ieListCnt;
+   uint8_t ieIdx, ieListCnt;
 
    /*nRCGI*/
    srvCellInfo->nRCGI.pLMN_Identity.size =3*sizeof(uint8_t);
@@ -2222,6 +2496,7 @@ uint8_t fillServedCellInfo(Served_Cell_Information_t *srvCellInfo)
 	 srvCellInfo->nRCGI.pLMN_Identity.size);
    if(srvCellInfo->nRCGI.pLMN_Identity.buf == NULLP)
    {
+      DU_LOG("\nERROR  --> Memory allocation failed in fillServedCellInfo");
       return RFAILED;
    }
    buildPlmnId(duCfgParam.srvdCellLst[0].duCellInfo.cellInfo.nrCgi.plmn,\
@@ -2230,17 +2505,12 @@ uint8_t fillServedCellInfo(Served_Cell_Information_t *srvCellInfo)
    DU_ALLOC(srvCellInfo->nRCGI.nRCellIdentity.buf,\
 	 srvCellInfo->nRCGI.nRCellIdentity.size);
    if(srvCellInfo->nRCGI.nRCellIdentity.buf == NULLP)
-   {
+   {   
+      DU_LOG("\nERROR  --> Memory allocation failed in fillServedCellInfo");
       return RFAILED;
    }
-   for (tmp = 0 ; tmp < srvCellInfo->\
-	 nRCGI.nRCellIdentity.size-1 ; tmp++)
-   {
-      srvCellInfo->nRCGI.nRCellIdentity.buf[tmp] = 0;
-   }
-   srvCellInfo->nRCGI.nRCellIdentity.buf[4] = 16;
-   srvCellInfo->nRCGI.nRCellIdentity.bits_unused =4;
-
+   
+   fillBitString(&srvCellInfo->nRCGI.nRCellIdentity, ODU_VALUE_FOUR, ODU_VALUE_FIVE, duCfgParam.sib1Params.cellIdentity);
    /*nRPCI*/
    srvCellInfo->nRPCI = duCfgParam.srvdCellLst[0].duCellInfo.cellInfo.nrPci;
 
@@ -2248,36 +2518,55 @@ uint8_t fillServedCellInfo(Served_Cell_Information_t *srvCellInfo)
    ieListCnt = 1;
    srvCellInfo->servedPLMNs.list.count = ieListCnt;
    srvCellInfo->servedPLMNs.list.size = ieListCnt*sizeof(ServedPLMNs_Item_t *);
-   DU_ALLOC(srvCellInfo->servedPLMNs.list.array,\
-	 srvCellInfo->servedPLMNs.list.size);
+   DU_ALLOC(srvCellInfo->servedPLMNs.list.array, srvCellInfo->servedPLMNs.list.size);
    if(srvCellInfo->servedPLMNs.list.array == NULLP)
    {
+      DU_LOG("\nERROR  --> Memory allocation failed in fillServedCellInfo");
       return RFAILED;
    }
    for(ieIdx=0; ieIdx < ieListCnt; ieIdx++)
    {
-      DU_ALLOC(srvCellInfo->servedPLMNs.list.array[ieIdx],\
-	    sizeof(ServedPLMNs_Item_t));
+      DU_ALLOC(srvCellInfo->servedPLMNs.list.array[ieIdx], sizeof(ServedPLMNs_Item_t));
       if(srvCellInfo->servedPLMNs.list.array[ieIdx]== NULLP)
       {
-	 return RFAILED;
+         DU_LOG("\nERROR  --> Memory allocation failed in fillServedCellInfo");
+         return RFAILED;
       }
    }
    if(fillServedPlmns(&srvCellInfo->servedPLMNs))
    {
+      DU_LOG("\nERROR  --> Failed to fill Served Plmn info");
       return RFAILED;
    }
 
+#ifndef NR_TDD
    /*nR Mode Info with FDD*/
    srvCellInfo->nR_Mode_Info.present = NR_Mode_Info_PR_fDD;
-   DU_ALLOC(srvCellInfo->nR_Mode_Info.choice.fDD,\
-         sizeof(FDD_Info_t));
+   DU_ALLOC(srvCellInfo->nR_Mode_Info.choice.fDD, sizeof(FDD_Info_t));
    if(srvCellInfo->nR_Mode_Info.choice.fDD == NULLP)
    {
+      DU_LOG("\nERROR  --> Memory allocation failed in fillServedCellInfo");
       return RFAILED;
    }
-   if(fillNrFddInfo(&srvCellInfo->nR_Mode_Info))
+   if(fillNrFddInfo(srvCellInfo->nR_Mode_Info.choice.fDD))
+   {
+       DU_LOG("\nERROR  --> Failed to fill the Nr FDD information");
       return RFAILED;
+   }
+#else
+   srvCellInfo->nR_Mode_Info.present = NR_Mode_Info_PR_tDD;   
+   DU_ALLOC(srvCellInfo->nR_Mode_Info.choice.tDD, sizeof(TDD_Info_t));
+   if(srvCellInfo->nR_Mode_Info.choice.tDD == NULLP)
+   {
+      DU_LOG("\nERROR  --> Memory allocation failed in fillServedCellInfo");
+      return RFAILED;
+   }
+   if(fillNrTddInfo(srvCellInfo->nR_Mode_Info.choice.tDD) != ROK)
+   {
+      DU_LOG("\nERROR  --> Failed to fill the Nr TDD information");
+      return RFAILED;
+   }
+#endif
 
    /*Measurement timing Config*/
    srvCellInfo->measurementTimingConfiguration.size = sizeof(uint8_t);
@@ -2312,8 +2601,6 @@ uint8_t fillServedCellInfo(Served_Cell_Information_t *srvCellInfo)
 
 uint8_t fillServCellToModItem(Served_Cells_To_Modify_Item_t *modifyItem)
 {
-   uint8_t ieIdx;
-
    /*pLMN_Identity*/
    modifyItem->oldNRCGI.pLMN_Identity.size = 3*sizeof(uint8_t);
    DU_ALLOC(modifyItem->oldNRCGI.pLMN_Identity.buf,modifyItem->oldNRCGI.pLMN_Identity.size);
@@ -2332,12 +2619,7 @@ uint8_t fillServCellToModItem(Served_Cells_To_Modify_Item_t *modifyItem)
    {
       return RFAILED;
    }
-   for(ieIdx = 0; ieIdx < modifyItem->oldNRCGI.nRCellIdentity.size-1; ieIdx++)
-   {
-      modifyItem->oldNRCGI.nRCellIdentity.buf[ieIdx] = 0;
-   }
-   modifyItem->oldNRCGI.nRCellIdentity.buf[4] = 16;
-   modifyItem->oldNRCGI.nRCellIdentity.bits_unused = 4;
+   fillBitString(&modifyItem->oldNRCGI.nRCellIdentity, ODU_VALUE_FOUR, ODU_VALUE_FIVE, duCfgParam.sib1Params.cellIdentity);
 
    if(fillServedCellInfo(&modifyItem->served_Cell_Information))
       return RFAILED;
@@ -2412,7 +2694,6 @@ uint8_t buildServCellToModList(Served_Cells_To_Modify_List_t *cellsToModify)
  *****************************************************************/
 uint8_t fillCellToDeleteItem(struct Served_Cells_To_Delete_ItemIEs *deleteItemIe)
 {
-   uint8_t arrIdx;
    Served_Cells_To_Delete_Item_t *deleteItem=NULLP;
    
    deleteItemIe->id = ProtocolIE_ID_id_Served_Cells_To_Delete_Item;
@@ -2441,12 +2722,7 @@ uint8_t fillCellToDeleteItem(struct Served_Cells_To_Delete_ItemIEs *deleteItemIe
       DU_LOG("ERROR  --> F1AP: fillCellToDeleteItem(): Failed to allocate the memory");
       return RFAILED;
    }
-   for(arrIdx = 0; arrIdx < deleteItem->oldNRCGI.nRCellIdentity.size-1; arrIdx++)
-   {
-      deleteItem->oldNRCGI.nRCellIdentity.buf[arrIdx] = 0;
-   }
-   deleteItem->oldNRCGI.nRCellIdentity.buf[4] = 16;
-   deleteItem->oldNRCGI.nRCellIdentity.bits_unused = 4;
+   fillBitString(&deleteItem->oldNRCGI.nRCellIdentity, ODU_VALUE_FOUR, ODU_VALUE_FIVE, duCfgParam.sib1Params.cellIdentity);
    return ROK;
 } 
 /*******************************************************************
@@ -3366,7 +3642,7 @@ uint8_t BuildRlcBearerToAddModList(struct CellGroupConfigRrc__rlc_BearerToAddMod
    coreset1StartPrb = coreset0EndPrb + 6;
    coreset1NumPrb = CORESET1_NUM_PRB;
    /* calculate the PRBs */
-   freqDomRscAllocType0(((coreset1StartPrb)/6), (coreset1NumPrb/6), freqDomainResource);
+   fillCoresetFeqDomAllocMap(((coreset1StartPrb)/6), (coreset1NumPrb/6), freqDomainResource);
    memcpy(controlRSet->frequencyDomainResources.buf, freqDomainResource, FREQ_DOM_RSRC_SIZE);
    controlRSet->frequencyDomainResources.bits_unused = bitsUnused;
 
@@ -4266,7 +4542,124 @@ uint8_t BuildBWPUlDedPuschCfg(PUSCH_Config_t *puschCfg)
 uint8_t BuildBWPUlDedPucchCfg(PUCCH_Config_t *pucchCfg)
 {
    uint8_t arrIdx, elementCnt;
+   uint8_t rsrcIdx, rsrcSetIdx;
+   PUCCH_ResourceSet_t *rsrcSet = NULLP;
+   PUCCH_Resource_t *rsrc = NULLP;
 
+   //RESOURCE SET
+   elementCnt = 1;
+   DU_ALLOC(pucchCfg->resourceSetToAddModList, sizeof(struct PUCCH_Config__resourceSetToAddModList));
+   if(pucchCfg->resourceSetToAddModList == NULL)
+   {
+      DU_LOG("\nERROR  -->  F1AP : Memory allocation failed in BuildBWPUlDedPucchCfg");
+      return RFAILED;
+   }
+
+   pucchCfg->resourceSetToAddModList->list.count = elementCnt;
+   pucchCfg->resourceSetToAddModList->list.size = elementCnt * sizeof(PUCCH_ResourceSet_t *);
+   DU_ALLOC(pucchCfg->resourceSetToAddModList->list.array, pucchCfg->resourceSetToAddModList->list.size);
+   if(pucchCfg->resourceSetToAddModList->list.array == NULLP)
+   {
+      DU_LOG("\nERROR  -->  F1AP : Memory allocation failed in BuildBWPUlDedPucchCfg");
+      return RFAILED;
+   }
+   for(rsrcSetIdx=0; rsrcSetIdx < pucchCfg->resourceSetToAddModList->list.count; rsrcSetIdx++)
+   {
+      DU_ALLOC(pucchCfg->resourceSetToAddModList->list.array[rsrcSetIdx], sizeof(PUCCH_ResourceSet_t));
+      if(pucchCfg->resourceSetToAddModList->list.array[rsrcSetIdx] == NULLP)
+      {
+         DU_LOG("\nERROR  -->  F1AP : Memory allocation failed in BuildBWPUlDedPucchCfg");
+         return RFAILED;
+      }
+   }
+   rsrcSetIdx = 0;
+   rsrcSet = pucchCfg->resourceSetToAddModList->list.array[rsrcSetIdx];
+   rsrcSet->pucch_ResourceSetId = 1;
+   elementCnt = 1;
+   rsrcSet->resourceList.list.count = elementCnt;
+   rsrcSet->resourceList.list.size = elementCnt * sizeof(PUCCH_ResourceId_t *);
+   DU_ALLOC(rsrcSet->resourceList.list.array, rsrcSet->resourceList.list.size);
+   if(rsrcSet->resourceList.list.array == NULLP)
+   {
+      DU_LOG("\nERROR  -->  F1AP : Memory allocation failed in BuildBWPUlDedPucchCfg");
+      return RFAILED;
+   }
+   for(rsrcIdx=0; rsrcIdx < rsrcSet->resourceList.list.count; rsrcIdx++)
+   {
+      DU_ALLOC(rsrcSet->resourceList.list.array[rsrcIdx], sizeof(PUCCH_ResourceId_t));
+      if(rsrcSet->resourceList.list.array[rsrcIdx] == NULLP)
+      {
+         DU_LOG("\nERROR  -->  F1AP : Memory allocation failed in BuildBWPUlDedPucchCfg");
+         return RFAILED;
+      }
+   }
+   rsrcIdx = 0;
+   *(rsrcSet->resourceList.list.array[rsrcIdx]) = 1;
+
+   //RESOURCE
+   elementCnt = 1;
+   DU_ALLOC(pucchCfg->resourceToAddModList, sizeof(struct PUCCH_Config__resourceToAddModList));
+   if(pucchCfg->resourceToAddModList == NULLP)
+   {
+      DU_LOG("\nERROR  -->  F1AP : Memory allocation failed in BuildBWPUlDedPucchCfg");
+      return RFAILED;
+   }
+   pucchCfg->resourceToAddModList->list.count = elementCnt;
+   pucchCfg->resourceToAddModList->list.size = elementCnt * sizeof(PUCCH_Resource_t *);
+   DU_ALLOC(pucchCfg->resourceToAddModList->list.array, pucchCfg->resourceToAddModList->list.size);
+   if(pucchCfg->resourceToAddModList->list.array == NULLP)
+   {
+      DU_LOG("\nERROR  -->  F1AP : Memory allocation failed in BuildBWPUlDedPucchCfg");
+      return RFAILED;
+   }
+   for(rsrcIdx=0; rsrcIdx < pucchCfg->resourceToAddModList->list.count; rsrcIdx++)
+   {
+      DU_ALLOC(pucchCfg->resourceToAddModList->list.array[rsrcIdx], sizeof(PUCCH_Resource_t));
+      if(pucchCfg->resourceToAddModList->list.array[rsrcIdx] == NULLP)
+      {
+         DU_LOG("\nERROR  -->  F1AP : Memory allocation failed in BuildBWPUlDedPucchCfg");
+         return RFAILED;
+      }
+   }
+   rsrcIdx = 0;
+   rsrc = pucchCfg->resourceToAddModList->list.array[rsrcIdx];
+   rsrc->pucch_ResourceId = 1;
+   rsrc->startingPRB = 0;
+   rsrc->format.present = PUCCH_Resource__format_PR_format1; 
+   DU_ALLOC(rsrc->format.choice.format1, sizeof(PUCCH_format1_t));
+   if(rsrc->format.choice.format1 == NULLP)
+   {
+      DU_LOG("\nERROR  -->  F1AP : Memory allocation failed in BuildBWPUlDedPucchCfg");
+      return RFAILED;
+   }
+   rsrc->format.choice.format1->initialCyclicShift = 0;
+   rsrc->format.choice.format1->nrofSymbols = 4;
+   rsrc->format.choice.format1->startingSymbolIndex = 0;
+   rsrc->format.choice.format1->timeDomainOCC = 0;
+
+   //PUCCH Format 1
+   DU_ALLOC(pucchCfg->format1, sizeof(struct PUCCH_Config__format1));
+   if(pucchCfg->format1 == NULLP)
+   {
+      DU_LOG("\nERROR  -->  F1AP : Memory allocation failed in BuildBWPUlDedPucchCfg");
+      return RFAILED;
+   }
+   pucchCfg->format1->present = PUCCH_Config__format1_PR_setup;
+   DU_ALLOC(pucchCfg->format1->choice.setup, sizeof(PUCCH_FormatConfig_t));
+   if(pucchCfg->format1->choice.setup == NULLP)
+   {
+      DU_LOG("\nERROR  -->  F1AP : Memory allocation failed in BuildBWPUlDedPucchCfg");
+      return RFAILED;
+   }
+   DU_ALLOC(pucchCfg->format1->choice.setup->nrofSlots, sizeof(long));
+   if(pucchCfg->format1->choice.setup->nrofSlots == NULLP)
+   {
+      DU_LOG("\nERROR  -->  F1AP : Memory allocation failed in BuildBWPUlDedPucchCfg");
+      return RFAILED;
+   }
+   *(pucchCfg->format1->choice.setup->nrofSlots) = PUCCH_FormatConfig__nrofSlots_n4;
+
+   //DL DATA TO UL ACK
    DU_ALLOC(pucchCfg->dl_DataToUL_ACK, sizeof(struct PUCCH_Config__dl_DataToUL_ACK));
    if(pucchCfg->dl_DataToUL_ACK == NULLP)
    {
@@ -5268,6 +5661,105 @@ void FreePuschTimeDomAllocList(PUSCH_Config_t *puschCfg)
    }
 
 }
+
+/*******************************************************************
+ *
+ * @brief Frees memory allocated for Dedicated PUCCH config
+ *
+ * @details
+ *
+ *    Function : FreeBWPUlDedPucchCfg
+ *
+ *    Functionality: Deallocating memory of Dedicated PUCCH cfg
+ *
+ * @params[in] BWP_UplinkDedicated__pucch_Config *ulBwpPucchCfg
+ *
+ * @return void
+ *
+ * ****************************************************************/
+void FreeBWPUlDedPucchCfg(struct BWP_UplinkDedicated__pucch_Config *ulBwpPucchCfg)
+{
+   uint8_t k1Idx, rsrcIdx, rsrcSetIdx;
+   PUCCH_Config_t *pucchCfg = NULLP;
+   PUCCH_ResourceSet_t *rsrcSet = NULLP;
+   PUCCH_Resource_t *rsrc = NULLP;
+
+   if(ulBwpPucchCfg)
+   {
+      if(ulBwpPucchCfg->choice.setup)
+      {
+         pucchCfg = ulBwpPucchCfg->choice.setup;
+
+         //Free resource set list
+         if(pucchCfg->resourceSetToAddModList)
+         {
+            if(pucchCfg->resourceSetToAddModList->list.array)
+            {
+               for(rsrcSetIdx=0; rsrcSetIdx < pucchCfg->resourceSetToAddModList->list.count; rsrcSetIdx++)
+               {
+                  rsrcSet = pucchCfg->resourceSetToAddModList->list.array[rsrcSetIdx];
+                  if(rsrcSet->resourceList.list.array)
+                  {
+                     for(rsrcIdx=0; rsrcIdx < rsrcSet->resourceList.list.count; rsrcIdx++)
+                     {
+                        DU_FREE(rsrcSet->resourceList.list.array[rsrcIdx], sizeof(PUCCH_ResourceId_t));
+                     }
+                     DU_FREE(rsrcSet->resourceList.list.array, rsrcSet->resourceList.list.size);
+                  }
+                  DU_FREE(pucchCfg->resourceSetToAddModList->list.array[rsrcSetIdx], sizeof(PUCCH_ResourceSet_t));
+               }
+               DU_FREE(pucchCfg->resourceSetToAddModList->list.array, pucchCfg->resourceSetToAddModList->list.size);
+            }
+            DU_FREE(pucchCfg->resourceSetToAddModList, sizeof(struct PUCCH_Config__resourceSetToAddModList));
+         }
+
+         //Free resource list
+         if(pucchCfg->resourceToAddModList)
+         {
+            if(pucchCfg->resourceToAddModList->list.array)
+            {
+               for(rsrcIdx=0; rsrcIdx < pucchCfg->resourceToAddModList->list.count; rsrcIdx++)
+               {
+                  rsrc = pucchCfg->resourceToAddModList->list.array[rsrcIdx];
+                  DU_FREE(rsrc->format.choice.format1, sizeof(PUCCH_format1_t));
+                  DU_FREE(pucchCfg->resourceToAddModList->list.array[rsrcIdx], sizeof(PUCCH_Resource_t));
+               }
+               DU_FREE(pucchCfg->resourceToAddModList->list.array, pucchCfg->resourceToAddModList->list.size);
+            }
+            DU_FREE(pucchCfg->resourceToAddModList, sizeof(struct PUCCH_Config__resourceToAddModList));
+         }
+
+         //PUCCH Format 1
+         if(pucchCfg->format1)
+         {
+            if(pucchCfg->format1->choice.setup)
+            {
+               DU_FREE(pucchCfg->format1->choice.setup->nrofSlots, sizeof(long));
+               DU_FREE(pucchCfg->format1->choice.setup, sizeof(PUCCH_FormatConfig_t));
+            }
+            DU_FREE(pucchCfg->format1, sizeof(struct PUCCH_Config__format1));
+         }
+         
+         //DL DATA TO UL ACK
+         if(pucchCfg->dl_DataToUL_ACK)
+         {
+            if(pucchCfg->dl_DataToUL_ACK->list.array)
+            {
+               for(k1Idx = 0; k1Idx <  pucchCfg->dl_DataToUL_ACK->list.count; k1Idx++)
+               {
+                  DU_FREE(pucchCfg->dl_DataToUL_ACK->list.array[k1Idx], sizeof(long));
+               }
+               DU_FREE(pucchCfg->dl_DataToUL_ACK->list.array, pucchCfg->dl_DataToUL_ACK->list.size);
+            }
+            DU_FREE(pucchCfg->dl_DataToUL_ACK, sizeof(struct PUCCH_Config__dl_DataToUL_ACK));
+         }
+
+         DU_FREE(ulBwpPucchCfg->choice.setup, sizeof(PUCCH_Config_t));
+      }
+      DU_FREE(ulBwpPucchCfg, sizeof(struct BWP_UplinkDedicated__pucch_Config));
+   }
+}
+
 /*******************************************************************
  *
  * @brief Frees memory allocated for InitialUlBWP
@@ -5285,36 +5777,15 @@ void FreePuschTimeDomAllocList(PUSCH_Config_t *puschCfg)
  * ****************************************************************/
 void FreeInitialUlBWP(BWP_UplinkDedicated_t *ulBwp)
 {
-   uint8_t  rSetIdx, rsrcIdx, k1Idx;
+   uint8_t  rSetIdx, rsrcIdx;
    SRS_Config_t   *srsCfg = NULLP;
    PUSCH_Config_t *puschCfg = NULLP;
-   PUCCH_Config_t *pucchCfg = NULLP;
    struct PUSCH_Config__dmrs_UplinkForPUSCH_MappingTypeA *dmrsUlCfg = NULLP;
    struct SRS_Config__srs_ResourceSetToAddModList *rsrcSetList = NULLP;
    struct SRS_ResourceSet__srs_ResourceIdList *rsrcIdList = NULLP;
    struct SRS_Config__srs_ResourceToAddModList *resourceList = NULLP;
 
-   if(ulBwp->pucch_Config)
-   {
-      if(ulBwp->pucch_Config->choice.setup)
-      {
-          pucchCfg = ulBwp->pucch_Config->choice.setup;
-          if(pucchCfg->dl_DataToUL_ACK)
-          {
-             if(pucchCfg->dl_DataToUL_ACK->list.array)
-             {
-                for(k1Idx = 0; k1Idx < pucchCfg->dl_DataToUL_ACK->list.count; k1Idx++)
-                {
-                   DU_FREE(pucchCfg->dl_DataToUL_ACK->list.array[k1Idx], sizeof(long));
-                }
-                DU_FREE(pucchCfg->dl_DataToUL_ACK->list.array, pucchCfg->dl_DataToUL_ACK->list.size);
-             }
-             DU_FREE(pucchCfg->dl_DataToUL_ACK, sizeof(struct PUCCH_Config__dl_DataToUL_ACK));
-          }
-          DU_FREE(ulBwp->pucch_Config->choice.setup, sizeof(PUCCH_Config_t));
-      }
-      DU_FREE(ulBwp->pucch_Config, sizeof(struct BWP_UplinkDedicated__pucch_Config));
-   }
+   FreeBWPUlDedPucchCfg(ulBwp->pucch_Config);
 
    if(ulBwp->pusch_Config)
    {
@@ -6284,6 +6755,7 @@ void freeRlcLcCfg(RlcBearerCfg *lcCfg)
          DU_LOG("\nERROR  -->  DU_APP: Invalid Rlc Mode %d at freeRlcLcCfg()", lcCfg->rlcMode);
          break;
    }
+   DU_FREE_SHRABL_BUF(DU_APP_MEM_REGION, DU_POOL, lcCfg->snssai, sizeof(Snssai));
 }
 
 /*******************************************************************
@@ -7328,6 +7800,48 @@ void extractUlLcCfg(UlLcCfg *f1UlLcCfg, LogicalChannelConfig_t *ulLcCfg)
 }
 
 /*******************************************************************
+*
+* @brief Function to extract Snssai Cfg Info from CU
+*
+* @details
+*
+*    Function : extractDrbSnssaiCfg
+*
+*    Functionality: Function to extract Drb Snssai Cfg Info from CU
+*
+* @params[in] DRB_Information_t *drbInfo, Snssai  *snssai
+* @return ROK/RFAILED
+*
+* ****************************************************************/
+
+uint8_t extractDrbSnssaiCfg(SNSSAI_t *RecvSnssai, Snssai **snssaiToBeShared)
+{
+   if(!(*snssaiToBeShared))
+   {
+      DU_ALLOC_SHRABL_BUF((*snssaiToBeShared), sizeof(Snssai));
+      if(snssaiToBeShared == NULLP)
+      {
+         DU_LOG("\nERROR  -->  DUAPP : extractDrbSnssaiCfg(): Memory failed at allocating for SNSSAI ");
+         return RFAILED;
+      }
+   }
+   if(RecvSnssai)
+   {
+      memcpy(&(*snssaiToBeShared)->sst, RecvSnssai->sST.buf, RecvSnssai->sST.size);
+      if(RecvSnssai->sD)
+      {
+         memcpy((*snssaiToBeShared)->sd, RecvSnssai->sD->buf,  RecvSnssai->sD->size);
+      }
+      else
+      {
+         DU_LOG("\nERROR  -->  DUAPP : extractDrbSnssaiCfg(): Received Null pointer of Snssai->SD");
+         return RFAILED;
+      }
+   }
+   return ROK;
+}
+
+/*******************************************************************
  *
  * @brief Function to procRlcLcCfg
  *
@@ -7344,8 +7858,9 @@ void extractUlLcCfg(UlLcCfg *f1UlLcCfg, LogicalChannelConfig_t *ulLcCfg)
  * ****************************************************************/
 
 void procRlcLcCfg(uint8_t rbId, uint8_t lcId, uint8_t rbType, uint8_t rlcMode,\
-   uint8_t configType, RLC_Config_t *f1RlcCfg, RlcBearerCfg *lcCfg)
+   uint8_t configType, RLC_Config_t *f1RlcCfg, RlcBearerCfg *lcCfg, QoSInformation_t *qoSInformation)
 {
+   DRB_Information_t *drbInfo;
 
    lcCfg->rbId   = rbId;
    lcCfg->configType = configType;
@@ -7368,9 +7883,23 @@ void procRlcLcCfg(uint8_t rbId, uint8_t lcId, uint8_t rbType, uint8_t rlcMode,\
    {
       extractRlcModeCfg(lcCfg->rlcMode, lcCfg, f1RlcCfg);
    }
+   if(qoSInformation != NULLP)
+   {
+      if(qoSInformation->present == QoSInformation_PR_choice_extension)
+      {
+         if(qoSInformation->choice.choice_extension->value.present ==\
+               QoSInformation_ExtIEs__value_PR_DRB_Information)
+         {
+            drbInfo = &qoSInformation->choice.choice_extension->value.choice.DRB_Information; 
+            if(extractDrbSnssaiCfg(&drbInfo->sNSSAI, &lcCfg->snssai) != ROK)
+            {
+               DU_LOG("\nERROR  -->  DUAPP: Unable to extract Snssai information at procRlcLcCfg()");
+               return RFAILED;
+            }
+         }
+      }
+   }
 }
-
-
 
 /*******************************************************************
  *
@@ -7390,43 +7919,59 @@ void procRlcLcCfg(uint8_t rbId, uint8_t lcId, uint8_t rbType, uint8_t rlcMode,\
 
 void extractQosInfo(DrbQosInfo *qosToAdd, QoSFlowLevelQoSParameters_t *qosFlowCfg)
 {
+   uint8_t qosCntIdx = 0;
+   ProtocolExtensionContainer_4624P74_t *qosIeExt = NULLP;
+
    qosToAdd->fiveQiType = qosFlowCfg->qoS_Characteristics.present;
    qosToAdd->u.nonDyn5Qi.fiveQi     =\
-         qosFlowCfg->qoS_Characteristics.choice.non_Dynamic_5QI->fiveQI;
+                                     qosFlowCfg->qoS_Characteristics.choice.non_Dynamic_5QI->fiveQI;
    if(qosFlowCfg->qoS_Characteristics.choice.non_Dynamic_5QI->averagingWindow)
    {
       qosToAdd->u.nonDyn5Qi.avgWindow = \
-        *(qosFlowCfg->qoS_Characteristics.choice.non_Dynamic_5QI->averagingWindow);
+                                        *(qosFlowCfg->qoS_Characteristics.choice.non_Dynamic_5QI->averagingWindow);
    }
    qosToAdd->u.nonDyn5Qi.maxDataBurstVol = \
-      *(qosFlowCfg->qoS_Characteristics.choice.non_Dynamic_5QI->maxDataBurstVolume);
+                                           *(qosFlowCfg->qoS_Characteristics.choice.non_Dynamic_5QI->maxDataBurstVolume);
    if(qosFlowCfg->qoS_Characteristics.choice.non_Dynamic_5QI->qoSPriorityLevel)
    {
       qosToAdd->u.nonDyn5Qi.priorLevel = \
-         *(qosFlowCfg->qoS_Characteristics.choice.non_Dynamic_5QI->qoSPriorityLevel);
+                                         *(qosFlowCfg->qoS_Characteristics.choice.non_Dynamic_5QI->qoSPriorityLevel);
    }
    qosToAdd->ngRanRetPri.priorityLevel = \
-      qosFlowCfg->nGRANallocationRetentionPriority.priorityLevel; 
+                                         qosFlowCfg->nGRANallocationRetentionPriority.priorityLevel; 
    qosToAdd->ngRanRetPri.preEmptionCap = \
-      qosFlowCfg->nGRANallocationRetentionPriority.pre_emptionCapability;
+                                         qosFlowCfg->nGRANallocationRetentionPriority.pre_emptionCapability;
    qosToAdd->ngRanRetPri.preEmptionVul = \
-      qosFlowCfg->nGRANallocationRetentionPriority.pre_emptionVulnerability;
+                                         qosFlowCfg->nGRANallocationRetentionPriority.pre_emptionVulnerability;
    if(qosFlowCfg->gBR_QoS_Flow_Information)
    {
       memcpy(&qosToAdd->grbQosInfo.maxFlowBitRateDl, \
-         qosFlowCfg->gBR_QoS_Flow_Information->maxFlowBitRateDownlink.buf, \
-         qosFlowCfg->gBR_QoS_Flow_Information->maxFlowBitRateDownlink.size);
+            qosFlowCfg->gBR_QoS_Flow_Information->maxFlowBitRateDownlink.buf, \
+            qosFlowCfg->gBR_QoS_Flow_Information->maxFlowBitRateDownlink.size);
       memcpy(&qosToAdd->grbQosInfo.maxFlowBitRateUl, \
-         qosFlowCfg->gBR_QoS_Flow_Information->maxFlowBitRateUplink.buf, \
-         qosFlowCfg->gBR_QoS_Flow_Information->maxFlowBitRateUplink.size);
+            qosFlowCfg->gBR_QoS_Flow_Information->maxFlowBitRateUplink.buf, \
+            qosFlowCfg->gBR_QoS_Flow_Information->maxFlowBitRateUplink.size);
       memcpy(&qosToAdd->grbQosInfo.guarFlowBitRateDl,\
-         qosFlowCfg->gBR_QoS_Flow_Information->guaranteedFlowBitRateDownlink.buf, \
-         qosFlowCfg->gBR_QoS_Flow_Information->guaranteedFlowBitRateDownlink.size);
+            qosFlowCfg->gBR_QoS_Flow_Information->guaranteedFlowBitRateDownlink.buf, \
+            qosFlowCfg->gBR_QoS_Flow_Information->guaranteedFlowBitRateDownlink.size);
       memcpy(&qosToAdd->grbQosInfo.guarFlowBitRateUl,\
-         qosFlowCfg->gBR_QoS_Flow_Information->guaranteedFlowBitRateUplink.buf, \
-         qosFlowCfg->gBR_QoS_Flow_Information->guaranteedFlowBitRateUplink.size);
+            qosFlowCfg->gBR_QoS_Flow_Information->guaranteedFlowBitRateUplink.buf, \
+            qosFlowCfg->gBR_QoS_Flow_Information->guaranteedFlowBitRateUplink.size);
    }
-   qosToAdd->pduSessionId = 0;
+   /*Extracting PDU_SESSION_ID*/
+   qosIeExt = (ProtocolExtensionContainer_4624P74_t *)qosFlowCfg->iE_Extensions;
+   if(qosIeExt)
+   {
+      for(qosCntIdx = 0; qosCntIdx < qosIeExt->list.count; qosCntIdx++)
+      {
+         if(qosIeExt->list.array[qosCntIdx]->extensionValue.present == \
+               QoSFlowLevelQoSParameters_ExtIEs__extensionValue_PR_PDUSessionID)
+         {
+            qosToAdd->pduSessionId = qosIeExt->list.array[qosCntIdx]->extensionValue.choice.PDUSessionID;
+            DU_LOG("\nDEBUG -->  DU_F1AP : extractQosInfo: PDU SessionID:%d",qosToAdd->pduSessionId);
+         }
+      }  
+   }
    qosToAdd->ulPduSessAggMaxBitRate = 0;
 }
 
@@ -7485,6 +8030,7 @@ uint8_t extractUpTnlInfo(uint8_t drbId, uint8_t configType,\
    }
    return ROK;
 }
+
 /*******************************************************************
 *
 * @brief Function to extract Drb Qos Cfg Info from CU
@@ -7507,7 +8053,7 @@ uint8_t extractDrbQosCfg(DRB_Information_t *drbInfo, LcCfg *macLcToAdd )
       DU_ALLOC_SHRABL_BUF(macLcToAdd->drbQos, sizeof(DrbQosInfo));
       if(macLcToAdd->drbQos == NULLP)
       {
-         DU_LOG("\nERROR  -->  DUAPP:Memory failed at allocating DrbQos at extractDrbCfg()");
+         DU_LOG("\nERROR  -->  DUAPP:Memory failed at allocating DrbQos at extractDrbQosCfg()");
          return RFAILED;
       }
 
@@ -7517,21 +8063,10 @@ uint8_t extractDrbQosCfg(DRB_Information_t *drbInfo, LcCfg *macLcToAdd )
       extractQosInfo(macLcToAdd->drbQos, &drbInfo->dRB_QoS);
       macLcToAdd->dlLcCfg.lcp = macLcToAdd->drbQos->ngRanRetPri.priorityLevel;
    }
-   if(!macLcToAdd->snssai)
+   if(extractDrbSnssaiCfg(&drbInfo->sNSSAI, &macLcToAdd->snssai) != ROK)
    {
-      DU_ALLOC_SHRABL_BUF(macLcToAdd->snssai, sizeof(Snssai));
-      if(macLcToAdd->snssai == NULLP)
-      {
-         DU_LOG("\nERROR  -->  DUAPP : Memory failed at allocating SNSSAI at extractDrbCfg()");
-         return RFAILED;
-      }
-   }
-   memcpy(&macLcToAdd->snssai->sst, drbInfo->sNSSAI.sST.buf, \
-         drbInfo->sNSSAI.sST.size);
-   if(drbInfo->sNSSAI.sD)
-   {
-      memcpy(macLcToAdd->snssai->sd, drbInfo->sNSSAI.sD->buf, \
-            drbInfo->sNSSAI.sD->size);
+      DU_LOG("\nERROR  -->  DUAPP: Unable to extract Snssai information  at extractDrbQosCfg()");
+      return RFAILED;
    }
    return ROK;
 }
@@ -7549,8 +8084,8 @@ uint8_t extractDrbQosCfg(DRB_Information_t *drbInfo, LcCfg *macLcToAdd )
  * @return void
  *
  * ****************************************************************/
-uint8_t extractDrbCfg(DRBs_ToBeSetup_Item_t *drbItem,DRBs_ToBeSetupMod_Item_t *drbSetupModItem,\
-LcCfg *macLcToAdd, UpTnlCfg *upTnlInfo)
+uint8_t extractDrbCfg(DRBs_ToBeSetup_Item_t *drbItem, DRBs_ToBeSetupMod_Item_t *drbSetupModItem,\
+DRBs_ToBeModified_Item_t *drbModItem,  LcCfg *macLcToAdd, UpTnlCfg *upTnlInfo)
 {
    DRB_Information_t *drbInfo = NULLP;
 
@@ -7597,7 +8132,32 @@ LcCfg *macLcToAdd, UpTnlCfg *upTnlInfo)
          }
       }
    }
+   else if(drbModItem != NULLP)
+   {
+      if(extractUpTnlInfo(drbModItem->dRBID, CONFIG_MOD, &drbModItem->uLUPTNLInformation_ToBeSetup_List,\
+      upTnlInfo) != ROK)
+      {
+         DU_LOG("\nERROR  -->  DUAPP : Failed to extract tunnel Cfg at extractDrbCfg()");
+         return RFAILED;
+      }
+      if(drbModItem->qoSInformation != NULLP)
+      {
+         if(drbModItem->qoSInformation->present == QoSInformation_PR_choice_extension)
+         {
+            if(drbModItem->qoSInformation->choice.choice_extension->value.present ==\
+                  QoSInformation_ExtIEs__value_PR_DRB_Information)
+            {
+               drbInfo = &drbModItem->qoSInformation->choice.choice_extension->value.choice.DRB_Information;
+               if(extractDrbQosCfg(drbInfo , macLcToAdd) != ROK)
+               {
+                  DU_LOG("\nERROR  -->  DUAPP : Failed to extract qos Cfg at extractDrbCfg()");  
+                  return RFAILED;
+               }
 
+            }
+         }
+      }
+   }
    return ROK;
 }
 
@@ -7617,11 +8177,11 @@ LcCfg *macLcToAdd, UpTnlCfg *upTnlInfo)
  * ****************************************************************/
 
 uint8_t extractMacRbCfg(uint8_t lcId, DRBs_ToBeSetup_Item_t *drbCfg,\
-DRBs_ToBeSetupMod_Item_t *drbSetupModCfg,  LogicalChannelConfig_t *ulLcCfg, LcCfg *lcCfg, UpTnlCfg *upTnlInfo)
+DRBs_ToBeSetupMod_Item_t *drbSetupModCfg,  DRBs_ToBeModified_Item_t *drbModCfg, LogicalChannelConfig_t *ulLcCfg, LcCfg *lcCfg, UpTnlCfg *upTnlInfo)
 {
    if(drbCfg != NULLP)
    {
-      if(extractDrbCfg(drbCfg, NULL, lcCfg, upTnlInfo) != ROK)
+      if(extractDrbCfg(drbCfg, NULL, NULL, lcCfg, upTnlInfo) != ROK)
       {
          DU_LOG("ERROR  -->  F1AP : Failed to build Drb Qos at extractMacRbCfg()");
          return RFAILED;
@@ -7629,7 +8189,15 @@ DRBs_ToBeSetupMod_Item_t *drbSetupModCfg,  LogicalChannelConfig_t *ulLcCfg, LcCf
    }
    else if(drbSetupModCfg != NULLP)
    { 
-      if(extractDrbCfg(NULL, drbSetupModCfg, lcCfg, upTnlInfo) != ROK)
+      if(extractDrbCfg(NULL, drbSetupModCfg, NULL, lcCfg, upTnlInfo) != ROK)
+      {
+         DU_LOG("ERROR  -->  F1AP : Failed to build Drb Qos at extractMacRbCfg()");
+         return RFAILED;
+      }
+   }
+   else if(drbModCfg != NULLP)
+   { 
+      if(extractDrbCfg(NULL, NULL, drbModCfg, lcCfg, upTnlInfo) != ROK)
       {
          DU_LOG("ERROR  -->  F1AP : Failed to build Drb Qos at extractMacRbCfg()");
          return RFAILED;
@@ -7669,8 +8237,8 @@ DRBs_ToBeSetupMod_Item_t *drbSetupModCfg,  LogicalChannelConfig_t *ulLcCfg, LcCf
  *
  * ****************************************************************/
 
-uint8_t procMacLcCfg(uint8_t lcId, uint8_t rbType, uint8_t configType,\
-DRBs_ToBeSetup_Item_t *drbItem, DRBs_ToBeSetupMod_Item_t *drbSetupModItem, LogicalChannelConfig_t *ulLcCfg,\
+uint8_t procMacLcCfg(uint8_t lcId, uint8_t rbType, uint8_t configType, DRBs_ToBeSetup_Item_t *drbItem,\
+DRBs_ToBeSetupMod_Item_t *drbSetupModItem, DRBs_ToBeModified_Item_t *drbModItem, LogicalChannelConfig_t *ulLcCfg,\
 LcCfg *lcCfg, UpTnlCfg *upTnlInfo)
 {
    uint8_t ret = ROK;
@@ -7679,14 +8247,16 @@ LcCfg *lcCfg, UpTnlCfg *upTnlInfo)
    lcCfg->configType = configType;
    if(rbType == RB_TYPE_SRB)
    {
-      ret = extractMacRbCfg(lcId, NULL,NULL, ulLcCfg, lcCfg, NULL);
+      ret = extractMacRbCfg(lcId, NULL, NULL, NULL, ulLcCfg, lcCfg, NULL);
    }
    else if(rbType == RB_TYPE_DRB)
    {
       if(drbItem != NULL)
-        ret = extractMacRbCfg(lcId, drbItem, NULL, ulLcCfg, lcCfg, upTnlInfo);
+        ret = extractMacRbCfg(lcId, drbItem, NULL, NULL, ulLcCfg, lcCfg, upTnlInfo);
       else if(drbSetupModItem != NULL)
-        ret = extractMacRbCfg(lcId, NULL, drbSetupModItem, ulLcCfg, lcCfg, upTnlInfo);
+        ret = extractMacRbCfg(lcId, NULL, drbSetupModItem, NULL, ulLcCfg, lcCfg, upTnlInfo);
+      else if(drbModItem != NULL)
+        ret = extractMacRbCfg(lcId, NULL, NULL, drbModItem, ulLcCfg, lcCfg, upTnlInfo);
    }
    return ret;
 }
@@ -7757,14 +8327,16 @@ uint8_t extractRlcCfgToAddMod(struct CellGroupConfigRrc__rlc_BearerToAddModList 
      /* Filling RLC/MAC Config*/
      memset(&ueCfgDb->macLcCfg[idx], 0, sizeof(LcCfg));
      memset(&ueCfgDb->rlcLcCfg[idx], 0, sizeof(RlcBearerCfg));
-     procRlcLcCfg(rbId, lcId, rbType, rlcMode, CONFIG_UNKNOWN, f1RlcCfg, &(ueCfgDb->rlcLcCfg[idx]));
-     if(procMacLcCfg(lcId, rbType, CONFIG_UNKNOWN, NULL, NULL, macUlLcCfg, &ueCfgDb->macLcCfg[idx], NULL) != ROK)
+     procRlcLcCfg(rbId, lcId, rbType, rlcMode, CONFIG_UNKNOWN, f1RlcCfg, &(ueCfgDb->rlcLcCfg[idx]), NULLP);
+     if(procMacLcCfg(lcId, rbType, CONFIG_UNKNOWN, NULL, NULL, NULL, macUlLcCfg, &ueCfgDb->macLcCfg[idx], NULL) != ROK)
      {
         DU_LOG("\nERROR  -->  DU APP : Failed while filling MAC LC config at extractRlcCfgToAddMod()");
         return RFAILED;
      }
      (ueCfgDb->numRlcLcs)++;
      (ueCfgDb->numMacLcs)++;
+         DU_LOG("\nDEBUG  -> DUAPP: extractRlcCfgToAddMod:RBType:%d, DrbID: %d,lcId:%d, [RLC,MAC,NumDrb]:[%x,%x,%x]",\
+                            rbType, rbId, lcId, ueCfgDb->numRlcLcs, ueCfgDb->numMacLcs,  ueCfgDb->numDrb);
   }
   //TODO: To send the failure cause in UeContextSetupRsp 
   return ROK;
@@ -8006,31 +8578,34 @@ void extractPdcchCfg(PDCCH_Config_t *cuPdcchCfg, PdcchConfig *macPdcchCfg)
       if(cRsetToAddModList->list.count)
       {
          macPdcchCfg->numCRsetToAddMod = cRsetToAddModList->list.count;
-	 for(cRsetIdx = 0; cRsetIdx < cRsetToAddModList->list.count; cRsetIdx++)
-	 {
-	    macPdcchCfg->cRSetToAddModList[cRsetIdx].cRSetId = \
-	      cRsetToAddModList->list.array[cRsetIdx]->controlResourceSetId;
-	    bitStringToInt(&cRsetToAddModList->list.array[cRsetIdx]->frequencyDomainResources,\
-	       macPdcchCfg->cRSetToAddModList[cRsetIdx].freqDomainRsrc);
-            macPdcchCfg->cRSetToAddModList[cRsetIdx].duration = \
-	      cRsetToAddModList->list.array[cRsetIdx]->duration;
+         for(cRsetIdx = 0; cRsetIdx < cRsetToAddModList->list.count; cRsetIdx++)
+         {
+            macPdcchCfg->cRSetToAddModList[cRsetIdx].cRSetId = \
+               cRsetToAddModList->list.array[cRsetIdx]->controlResourceSetId;
+            //freqDomRsrcBitStringToInt(&cRsetToAddModList->list.array[cRsetIdx]->frequencyDomainResources,\
+                  macPdcchCfg->cRSetToAddModList[cRsetIdx].freqDomainRsrc);
+            memcpy(macPdcchCfg->cRSetToAddModList[cRsetIdx].freqDomainRsrc, \
+               cRsetToAddModList->list.array[cRsetIdx]->frequencyDomainResources.buf,
+               cRsetToAddModList->list.array[cRsetIdx]->frequencyDomainResources.size);
 
-	    macPdcchCfg->cRSetToAddModList[cRsetIdx].cceRegMappingType = \
-	      cRsetToAddModList->list.array[cRsetIdx]->cce_REG_MappingType.present;   
+            macPdcchCfg->cRSetToAddModList[cRsetIdx].duration = \
+                cRsetToAddModList->list.array[cRsetIdx]->duration;
+
+            macPdcchCfg->cRSetToAddModList[cRsetIdx].cceRegMappingType = \
+               cRsetToAddModList->list.array[cRsetIdx]->cce_REG_MappingType.present;   
             if(macPdcchCfg->cRSetToAddModList[cRsetIdx].cceRegMappingType == CCE_REG_MAPPINGTYPE_PR_INTERLEAVED)
-	    {
-	       //TODO: handle the case for Interleaved
+            {
+               //TODO: handle the case for Interleaved
             }
             macPdcchCfg->cRSetToAddModList[cRsetIdx].precoderGranularity = \
-	      cRsetToAddModList->list.array[cRsetIdx]->precoderGranularity;
-	    if(cRsetToAddModList->list.array[cRsetIdx]->pdcch_DMRS_ScramblingID)
-	    {
-	       macPdcchCfg->cRSetToAddModList[cRsetIdx].dmrsScramblingId= \
-	          *(cRsetToAddModList->list.array[cRsetIdx]->pdcch_DMRS_ScramblingID);
-	    }
+                cRsetToAddModList->list.array[cRsetIdx]->precoderGranularity;
+            if(cRsetToAddModList->list.array[cRsetIdx]->pdcch_DMRS_ScramblingID)
+            {
+               macPdcchCfg->cRSetToAddModList[cRsetIdx].dmrsScramblingId= \
+                  *(cRsetToAddModList->list.array[cRsetIdx]->pdcch_DMRS_ScramblingID);
+            }
          }
       }
-
    }
    /* Control Resource Set To Release List */
    if(cuPdcchCfg->controlResourceSetToReleaseList)
@@ -8039,10 +8614,10 @@ void extractPdcchCfg(PDCCH_Config_t *cuPdcchCfg, PdcchConfig *macPdcchCfg)
       if(cRsetToRelList->list.count)
       {
          macPdcchCfg->numCRsetToRel = cRsetToRelList->list.count;
-	 for(cRsetIdx = 0; cRsetIdx < cRsetToRelList->list.count; cRsetIdx++)
-	 {
+         for(cRsetIdx = 0; cRsetIdx < cRsetToRelList->list.count; cRsetIdx++)
+         {
             macPdcchCfg->cRSetToRelList[cRsetIdx] = *(cRsetToRelList->list.array[cRsetIdx]);
-	 }
+         }
       }
    }
 
@@ -8053,49 +8628,49 @@ void extractPdcchCfg(PDCCH_Config_t *cuPdcchCfg, PdcchConfig *macPdcchCfg)
       if(srchSpcToAddModList->list.count)
       {
          macPdcchCfg->numSearchSpcToAddMod = srchSpcToAddModList->list.count;
-	 for(srchSpcIdx = 0; srchSpcIdx < srchSpcToAddModList->list.count; srchSpcIdx++)
-	 {
+         for(srchSpcIdx = 0; srchSpcIdx < srchSpcToAddModList->list.count; srchSpcIdx++)
+         {
             macPdcchCfg->searchSpcToAddModList[srchSpcIdx].searchSpaceId =\
-	       srchSpcToAddModList->list.array[srchSpcIdx]->searchSpaceId;
+                                                                          srchSpcToAddModList->list.array[srchSpcIdx]->searchSpaceId;
             macPdcchCfg->searchSpcToAddModList[srchSpcIdx].cRSetId =\
-	       *(srchSpcToAddModList->list.array[srchSpcIdx]->controlResourceSetId);
-	    if(srchSpcToAddModList->list.array[srchSpcIdx]->monitoringSlotPeriodicityAndOffset)
-	    {
+                                                                    *(srchSpcToAddModList->list.array[srchSpcIdx]->controlResourceSetId);
+            if(srchSpcToAddModList->list.array[srchSpcIdx]->monitoringSlotPeriodicityAndOffset)
+            {
                macPdcchCfg->searchSpcToAddModList[srchSpcIdx].mSlotPeriodicityAndOffset =\
-	          srchSpcToAddModList->list.array[srchSpcIdx]->monitoringSlotPeriodicityAndOffset->present;
+                                                                                         srchSpcToAddModList->list.array[srchSpcIdx]->monitoringSlotPeriodicityAndOffset->present;
             }
             if(srchSpcToAddModList->list.array[srchSpcIdx]->monitoringSymbolsWithinSlot)
             {
-	       bitStringToInt(srchSpcToAddModList->list.array[srchSpcIdx]->monitoringSymbolsWithinSlot,\
-	          macPdcchCfg->searchSpcToAddModList[srchSpcIdx].mSymbolsWithinSlot);
+               bitStringToInt(srchSpcToAddModList->list.array[srchSpcIdx]->monitoringSymbolsWithinSlot,\
+                     macPdcchCfg->searchSpcToAddModList[srchSpcIdx].mSymbolsWithinSlot);
             }
-	    if(srchSpcToAddModList->list.array[srchSpcIdx]->nrofCandidates)
+            if(srchSpcToAddModList->list.array[srchSpcIdx]->nrofCandidates)
             {
-	      macPdcchCfg->searchSpcToAddModList[srchSpcIdx].numCandidatesAggLevel1 = \
-	          srchSpcToAddModList->list.array[srchSpcIdx]->nrofCandidates->aggregationLevel1;
-              macPdcchCfg->searchSpcToAddModList[srchSpcIdx].numCandidatesAggLevel2 = \
-	          srchSpcToAddModList->list.array[srchSpcIdx]->nrofCandidates->aggregationLevel2;
-              macPdcchCfg->searchSpcToAddModList[srchSpcIdx].numCandidatesAggLevel4 = \
-              	  srchSpcToAddModList->list.array[srchSpcIdx]->nrofCandidates->aggregationLevel4;
-              
-              macPdcchCfg->searchSpcToAddModList[srchSpcIdx].numCandidatesAggLevel8 = \
-              	  srchSpcToAddModList->list.array[srchSpcIdx]->nrofCandidates->aggregationLevel8;
-              
-              macPdcchCfg->searchSpcToAddModList[srchSpcIdx].numCandidatesAggLevel16 = \
-	          srchSpcToAddModList->list.array[srchSpcIdx]->nrofCandidates->aggregationLevel16;
-	    }
+               macPdcchCfg->searchSpcToAddModList[srchSpcIdx].numCandidatesAggLevel1 = \
+                                                                                       srchSpcToAddModList->list.array[srchSpcIdx]->nrofCandidates->aggregationLevel1;
+               macPdcchCfg->searchSpcToAddModList[srchSpcIdx].numCandidatesAggLevel2 = \
+                                                                                       srchSpcToAddModList->list.array[srchSpcIdx]->nrofCandidates->aggregationLevel2;
+               macPdcchCfg->searchSpcToAddModList[srchSpcIdx].numCandidatesAggLevel4 = \
+                                                                                       srchSpcToAddModList->list.array[srchSpcIdx]->nrofCandidates->aggregationLevel4;
+
+               macPdcchCfg->searchSpcToAddModList[srchSpcIdx].numCandidatesAggLevel8 = \
+                                                                                       srchSpcToAddModList->list.array[srchSpcIdx]->nrofCandidates->aggregationLevel8;
+
+               macPdcchCfg->searchSpcToAddModList[srchSpcIdx].numCandidatesAggLevel16 = \
+                                                                                        srchSpcToAddModList->list.array[srchSpcIdx]->nrofCandidates->aggregationLevel16;
+            }
             if(srchSpcToAddModList->list.array[srchSpcIdx]->searchSpaceType)
-	    {
-	       macPdcchCfg->searchSpcToAddModList[srchSpcIdx].searchSpaceType =\
-	          srchSpcToAddModList->list.array[srchSpcIdx]->searchSpaceType->present;
-	       if(macPdcchCfg->searchSpcToAddModList[srchSpcIdx].searchSpaceType == SEARCHSPACETYPE_PR_UE_SPECIFIC)
-	       {
-		  macPdcchCfg->searchSpcToAddModList[srchSpcIdx].ueSpecificDciFormat =\
-		     srchSpcToAddModList->list.array[srchSpcIdx]->searchSpaceType->choice.ue_Specific->dci_Formats;
-	       }
-         
-	    }
-	 }
+            {
+               macPdcchCfg->searchSpcToAddModList[srchSpcIdx].searchSpaceType =\
+                                                                               srchSpcToAddModList->list.array[srchSpcIdx]->searchSpaceType->present;
+               if(macPdcchCfg->searchSpcToAddModList[srchSpcIdx].searchSpaceType == SEARCHSPACETYPE_PR_UE_SPECIFIC)
+               {
+                  macPdcchCfg->searchSpcToAddModList[srchSpcIdx].ueSpecificDciFormat =\
+                                                                                      srchSpcToAddModList->list.array[srchSpcIdx]->searchSpaceType->choice.ue_Specific->dci_Formats;
+               }
+
+            }
+         }
       }
    }
    /* Search space To Rel List */
@@ -8105,11 +8680,11 @@ void extractPdcchCfg(PDCCH_Config_t *cuPdcchCfg, PdcchConfig *macPdcchCfg)
       if(srchSpcToRelList->list.count)
       {
          macPdcchCfg->numSearchSpcToRel = srchSpcToRelList->list.count;
-	 for(srchSpcIdx = 0; srchSpcIdx < srchSpcToRelList->list.count; srchSpcIdx++)
-	 {
+         for(srchSpcIdx = 0; srchSpcIdx < srchSpcToRelList->list.count; srchSpcIdx++)
+         {
             macPdcchCfg->searchSpcToRelList[srchSpcIdx] =\
-	       *(srchSpcToRelList->list.array[srchSpcIdx]);
-	 }
+                                                         *(srchSpcToRelList->list.array[srchSpcIdx]);
+         }
       }
    }
 }
@@ -8507,8 +9082,16 @@ void extractResrcSetToAddModList(PucchResrcSetCfg *macRsrcSetList, struct PUCCH_
          macRsrcSetList->resrcSetToAddModList[arrIdx].resrcList[rsrcListIdx] =\
             *cuRsrcSetList->list.array[arrIdx]->resourceList.list.array[rsrcListIdx];
       }
-      macRsrcSetList->resrcSetToAddModList[arrIdx].maxPayLoadSize =\
-         *cuRsrcSetList->list.array[arrIdx]->maxPayloadMinus1;
+
+      if(cuRsrcSetList->list.array[arrIdx]->maxPayloadMinus1)
+      {
+         macRsrcSetList->resrcSetToAddModList[arrIdx].maxPayLoadSize =\
+            *cuRsrcSetList->list.array[arrIdx]->maxPayloadMinus1;
+      }
+      else
+      {
+         macRsrcSetList->resrcSetToAddModList[arrIdx].maxPayLoadSize = 0;
+      }
    }
 }/* End of extractResrcSetToAddModList */
 
@@ -9061,7 +9644,21 @@ ServCellCfgInfo *storedSrvCellCfg)
          if(dlBwp->pdcch_Config->choice.setup)
          {
             macSrvCellCfg->initDlBwp.pdcchPresent = true;
-            extractPdcchCfg(dlBwp->pdcch_Config->choice.setup, &macSrvCellCfg->initDlBwp.pdcchCfg);
+            if(storedSrvCellCfg)
+            {
+               if(!storedSrvCellCfg->initDlBwp.pdcchPresent)
+               {
+                  extractPdcchCfg(dlBwp->pdcch_Config->choice.setup, &macSrvCellCfg->initDlBwp.pdcchCfg);
+               }
+               else
+               {
+                  extractPdcchCfg(dlBwp->pdcch_Config->choice.setup, &macSrvCellCfg->initDlBwp.pdcchCfg);
+               }
+            }
+            else
+            {
+               extractPdcchCfg(dlBwp->pdcch_Config->choice.setup, &macSrvCellCfg->initDlBwp.pdcchCfg);
+            }
          }
       }
       if(dlBwp->pdsch_Config)
@@ -9885,19 +10482,18 @@ CellGroupConfigRrc_t *extractCellGrpInfo(ProtocolExtensionContainer_4624P16_t *p
  * ****************************************************************/
 uint8_t procSrbListToSetup(SRBs_ToBeSetup_Item_t * srbItem, LcCfg *macLcToAdd, RlcBearerCfg *rlcLcToAdd)
 {
-   uint8_t ret = ROK;
 
    /* Filling RLC INFO */
-   procRlcLcCfg(srbItem->sRBID, srbItem->sRBID, RB_TYPE_SRB, RLC_AM, CONFIG_ADD, NULL, rlcLcToAdd);
+   procRlcLcCfg(srbItem->sRBID, srbItem->sRBID, RB_TYPE_SRB, RLC_AM, CONFIG_ADD, NULL, rlcLcToAdd, NULL);
 
    /* Filling MAC INFO */
-   ret = procMacLcCfg(srbItem->sRBID, RB_TYPE_SRB, CONFIG_ADD, NULL,NULL, NULL, macLcToAdd, NULL);
-   if(ret == RFAILED)
+   if(procMacLcCfg(srbItem->sRBID, RB_TYPE_SRB, CONFIG_ADD, NULL,NULL, NULL, NULL, macLcToAdd, NULL)  != ROK)
    { 
       DU_LOG("\nERROR  -->  F1AP : Failed at MAC LC Cfg in procSrbListToSetup()");
-      return ret;
+      return RFAILED;
    }
-   return ret;
+
+   return ROK;
 }
 
 
@@ -9947,6 +10543,8 @@ uint8_t extractSrbListToSetup(SRBs_ToBeSetup_List_t *srbCfg, DuUeCfg *ueCfgDb)
 	    &ueCfgDb->rlcLcCfg[ueCfgDb->numRlcLcs]);
 	 ueCfgDb->numRlcLcs++;
 	 ueCfgDb->numMacLcs++;
+         DU_LOG("\nDEBUG --> DUAPP: extractSrbListToSetup: SRBID: %d [RLC,MAC,NumDrb]:[%x,%x,%x]",\
+                            srbItem->sRBID, ueCfgDb->numRlcLcs, ueCfgDb->numMacLcs,  ueCfgDb->numDrb);
 	 if(ret == RFAILED)
 	 {
             DU_LOG("\nERROR  -->  F1AP:  Failed at extractSrbListToSetup()");
@@ -9966,41 +10564,68 @@ uint8_t extractSrbListToSetup(SRBs_ToBeSetup_List_t *srbCfg, DuUeCfg *ueCfgDb)
  *
  * @details
  *
- *    Function : procDrbListToSetup
+ *    Function : procDrbListToSetupMod
  *
  *    Functionality: Fills Drb List received by CU
  *                   for both MAC and RLC
  *
- * @params[in] SRBs_ToBeSetup_Item_t pointer
- *             LcCfg pointer,
- *             RlcBearerCfg pointer
+ * @params[in] DRBs_ToBeSetup_Item_t , DRBs_ToBeSetupMod_Item_t,
+ *             DRBs_ToBeModified_Item_t , lcId, LcCfg pointer,
+ *             RlcBearerCfg , UpTnlCfg, RlcUeCfg
  * @return void
  *
  * ****************************************************************/
 
-uint8_t procDrbListToSetup(uint8_t lcId, DRBs_ToBeSetup_Item_t *drbItem,\
-DRBs_ToBeSetupMod_Item_t *drbSetupModItem, LcCfg *macLcToAdd, RlcBearerCfg *rlcLcToAdd, UpTnlCfg *upTnlInfo)
+uint8_t procDrbListToSetupMod(uint8_t lcId, DRBs_ToBeSetup_Item_t *drbItem,\
+DRBs_ToBeSetupMod_Item_t *drbSetupModItem, DRBs_ToBeModified_Item_t *drbModItem, LcCfg *macLcToAdd, RlcBearerCfg *rlcLcToAdd, UpTnlCfg *upTnlInfo, RlcUeCfg *storedRlcUeCfg)
 {
+   uint8_t cfgIdx = 0;
+   RlcMode rlcModeInfo;
 
    if(drbItem != NULLP)
    {
       /* Filling RLC INFO */
-      procRlcLcCfg(drbItem->dRBID, lcId, RB_TYPE_DRB, drbItem->rLCMode, CONFIG_ADD, NULL, rlcLcToAdd);
+      procRlcLcCfg(drbItem->dRBID, lcId, RB_TYPE_DRB, drbItem->rLCMode, CONFIG_ADD, NULL, rlcLcToAdd, &drbItem->\
+      qoSInformation);
 
       /* Filling MAC INFO */
-      if(procMacLcCfg(lcId, RB_TYPE_DRB, CONFIG_ADD, drbItem, NULL, NULL, macLcToAdd, upTnlInfo) != ROK)
+      if(procMacLcCfg(lcId, RB_TYPE_DRB, CONFIG_ADD, drbItem, NULL, NULL, NULL, macLcToAdd, upTnlInfo) != ROK)
       { 
-         DU_LOG("\nERROR  --> F1AP : Failed at RLC LC Cfg in procDrbListToSetup()");
+         DU_LOG("\nERROR  --> F1AP : Failed at RLC LC Cfg in procDrbListToSetupMod()");
          return RFAILED;
       }
    }
    else if(drbSetupModItem != NULLP)
    {
-      procRlcLcCfg(drbSetupModItem->dRBID, lcId, RB_TYPE_DRB, drbSetupModItem->rLCMode, CONFIG_ADD, NULL, rlcLcToAdd);
+      procRlcLcCfg(drbSetupModItem->dRBID, lcId, RB_TYPE_DRB, drbSetupModItem->rLCMode, CONFIG_ADD, NULL, rlcLcToAdd, 
+      &drbSetupModItem->qoSInformation);
 
-      if(procMacLcCfg(lcId, RB_TYPE_DRB, CONFIG_ADD, NULL, drbSetupModItem, NULL, macLcToAdd, upTnlInfo) != ROK)
+      if(procMacLcCfg(lcId, RB_TYPE_DRB, CONFIG_ADD, NULL, drbSetupModItem, NULL, NULL, macLcToAdd, upTnlInfo) != ROK)
       {
-         DU_LOG("\nERROR  --> F1AP : Failed at RLC LC Cfg in procDrbListToSetup()");
+         DU_LOG("\nERROR  --> F1AP : Failed at RLC LC Cfg in procDrbListToSetupMod()");
+         return RFAILED;
+      }
+   }
+   else if(drbModItem != NULLP)
+   {
+      /* Drb to Mod IEs doesnot have rlcMode to be modified
+       * in ASN. Hence no change in RLC configurations */
+      if(storedRlcUeCfg != NULLP)
+      {
+         for(cfgIdx = 0; cfgIdx < storedRlcUeCfg->numLcs; cfgIdx++)
+         {
+            if(storedRlcUeCfg->rlcLcCfg[cfgIdx].lcId == lcId)
+            {
+               rlcModeInfo = storedRlcUeCfg->rlcLcCfg[cfgIdx].rlcMode;
+               break;
+            }
+         }
+      }
+
+      procRlcLcCfg(drbModItem->dRBID, lcId, RB_TYPE_DRB, rlcModeInfo, CONFIG_MOD, NULL, rlcLcToAdd, drbModItem->qoSInformation);
+      if(procMacLcCfg(lcId, RB_TYPE_DRB, CONFIG_MOD, NULL, NULL, drbModItem, NULL, macLcToAdd, upTnlInfo) != ROK)
+      {
+         DU_LOG("\nERROR  --> F1AP : Failed at RLC LC Cfg in procDrbListToSetupMod()");
          return RFAILED;
       }
    }
@@ -10013,7 +10638,7 @@ DRBs_ToBeSetupMod_Item_t *drbSetupModItem, LcCfg *macLcToAdd, RlcBearerCfg *rlcL
  *
  * @details
  *
- *    Function : extractDrbListToSetup
+ *    Function : extractDrbListToSetupMod
  *
  *    Functionality: extract Drb List received by CU
  *                   for both MAC and RLC
@@ -10024,12 +10649,13 @@ DRBs_ToBeSetupMod_Item_t *drbSetupModItem, LcCfg *macLcToAdd, RlcBearerCfg *rlcL
  *
  * ****************************************************************/
 
-uint8_t extractDrbListToSetup(uint8_t lcId, DRBs_ToBeSetup_List_t *drbCfg,DRBs_ToBeSetupMod_List_t *drbSetupModCfg,\
-uint8_t drbCount, DuUeCfg *ueCfgDb)
+uint8_t extractDrbListToSetupMod(DRBs_ToBeSetup_List_t *drbCfg, DRBs_ToBeSetupMod_List_t *drbSetupModCfg,\
+ DRBs_ToBeModified_List_t *drbModCfg, uint8_t drbCount, DuUeCfg *ueCfgDb, uint32_t *drbBitMap, RlcUeCfg *rlcUeCfg)
 {
-   uint8_t ret, drbIdx;
+   uint8_t ret, drbIdx = 0, lcId = 0;
    DRBs_ToBeSetup_Item_t *drbItem = NULLP;
    DRBs_ToBeSetupMod_ItemIEs_t *drbSetupModItem = NULLP;
+   DRBs_ToBeModified_ItemIEs_t *drbModItem = NULLP;
 
    ret = ROK;
    if(drbCount > 0)
@@ -10038,48 +10664,81 @@ uint8_t drbCount, DuUeCfg *ueCfgDb)
       {
          if(ueCfgDb->numMacLcs > MAX_NUM_LC)
          { 
-            DU_LOG("\nERROR  -->  F1AP :  MAX LC Reached in MAC at extractDrbListToSetup()");
+            DU_LOG("\nERROR  -->  F1AP :  MAX LC Reached in MAC at extractDrbListToSetupMod()");
             ret = RFAILED;
             break;
          }
          if(ueCfgDb->numRlcLcs > MAX_NUM_LC)
          {
-            DU_LOG("\nERROR  -->  F1AP :  MAX LC Reached in RLC at extractDrbListToSetup()");
+            DU_LOG("\nERROR  -->  F1AP :  MAX LC Reached in RLC at extractDrbListToSetupMod()");
             ret = RFAILED;
             break;
          }
          memset(&ueCfgDb->macLcCfg[ueCfgDb->numMacLcs], 0, sizeof(LcCfg));
          memset(&ueCfgDb->rlcLcCfg[ueCfgDb->numRlcLcs], 0, sizeof(RlcBearerCfg));
-   
-         if(drbCfg != NULL)
+
+         if(drbModCfg != NULLP)
          {
-            drbItem = &drbCfg->list.array[drbIdx]->value.choice.DRBs_ToBeSetup_Item;
-            ret = procDrbListToSetup(lcId, drbItem, NULL, &ueCfgDb->macLcCfg[ueCfgDb->numMacLcs],\
-               &ueCfgDb->rlcLcCfg[ueCfgDb->numRlcLcs], &ueCfgDb->upTnlInfo[ueCfgDb->numDrb]);
+            drbModItem = (DRBs_ToBeModified_ItemIEs_t *) drbModCfg->list.array[drbIdx];
+            lcId = fetchLcId(drbModItem->value.choice.DRBs_ToBeModified_Item.dRBID);
+            if(lcId < MIN_DRB_LCID)
+            {
+               DU_LOG("\nERROR  --> F1AP : Failed fetching LCID %d in extractDrbListToSetupMod() for Modified List", lcId);
+               break;
+            } 
+            ret = procDrbListToSetupMod(lcId, NULL, NULL, &(drbModItem->value.choice.DRBs_ToBeModified_Item),\
+            &ueCfgDb->macLcCfg[ueCfgDb->numMacLcs], &ueCfgDb->rlcLcCfg[ueCfgDb->numRlcLcs],\
+            &ueCfgDb->upTnlInfo[ueCfgDb->numDrb], rlcUeCfg);
             if(ret == RFAILED)
             {
-               DU_LOG("\nERROR  --> F1AP : Failed at extractDrbListToSetup()");
+               DU_LOG("\nERROR  --> F1AP : Failed at extractDrbListToSetupMod() for Modified List");
                break;
             }
+
          }
-         else if(drbSetupModCfg != NULL)
+         else
          {
-            drbSetupModItem = (DRBs_ToBeSetupMod_ItemIEs_t *) drbSetupModCfg->list.array[drbIdx];
-            ret = procDrbListToSetup(lcId, NULL, &(drbSetupModItem->value.choice.DRBs_ToBeSetupMod_Item) ,\
-            &ueCfgDb->macLcCfg[ueCfgDb->numMacLcs], &ueCfgDb->rlcLcCfg[ueCfgDb->numRlcLcs],\
-            &ueCfgDb->upTnlInfo[ueCfgDb->numDrb]);
-            if(ret == RFAILED)
+            lcId = getDrbLcId(drbBitMap);
+            if(lcId == RFAILED)
             {
-               DU_LOG("\nERROR  --> F1AP : Failed at extractDrbListToSetup()");
+               DU_LOG("\nERROR  -->  F1AP :  InCorrect LCID extractDrbListToSetupMod()");
+               ret = RFAILED;
                break;
+            }
+            if(drbCfg != NULL)
+            {
+               drbItem = &drbCfg->list.array[drbIdx]->value.choice.DRBs_ToBeSetup_Item;
+               ret = procDrbListToSetupMod(lcId, drbItem, NULL, NULL, &ueCfgDb->macLcCfg[ueCfgDb->numMacLcs],\
+                     &ueCfgDb->rlcLcCfg[ueCfgDb->numRlcLcs], &ueCfgDb->upTnlInfo[ueCfgDb->numDrb], rlcUeCfg);
+               if(ret == RFAILED)
+               {
+                  DU_LOG("\nERROR  --> F1AP : Failed at extractDrbListToSetupMod() for DrbSetup List");
+                  break;
+               }
+            }
+            else if(drbSetupModCfg != NULL)
+            {
+               drbSetupModItem = (DRBs_ToBeSetupMod_ItemIEs_t *) drbSetupModCfg->list.array[drbIdx];
+               ret = procDrbListToSetupMod(lcId, NULL, &(drbSetupModItem->value.choice.DRBs_ToBeSetupMod_Item), NULL,\
+                     &ueCfgDb->macLcCfg[ueCfgDb->numMacLcs], &ueCfgDb->rlcLcCfg[ueCfgDb->numRlcLcs],\
+                     &ueCfgDb->upTnlInfo[ueCfgDb->numDrb], rlcUeCfg);
+               if(ret == RFAILED)
+               {
+                  DU_LOG("\nERROR  --> F1AP : Failed at extractDrbListToSetupMod() for DrbSetupMod List");
+                  break;
+               }
+               ueCfgDb->numDrbSetupMod++;
             }
          }
          ueCfgDb->numRlcLcs++;
          ueCfgDb->numMacLcs++;
          ueCfgDb->numDrb++;
+ 
+         DU_LOG("\nDEBUG --> DUAPP: extractDrbListToSetupMod:lcId:%x ,BitMap:%x, [RLC,MAC,NumDrb]:[%x,%x,%x]",\
+                            lcId,*drbBitMap, ueCfgDb->numRlcLcs, ueCfgDb->numMacLcs,  ueCfgDb->numDrb);
          if(ret == RFAILED)
          {
-            DU_LOG("\nERROR  --> F1AP : Failed at extractDrbListToSetup()");
+            DU_LOG("\nERROR  --> F1AP : Failed at extractDrbListToSetupMod()");
             break;
          }
       }
@@ -10310,7 +10969,7 @@ void freeAperDecodeF1UeContextSetupReq(UEContextSetupRequest_t   *ueSetReq)
  * ****************************************************************/
 uint8_t procF1UeContextSetupReq(F1AP_PDU_t *f1apMsg)
 {
-   uint8_t  ret=0, ieIdx=0, ueIdx=0, lcId=0, cellIdx=0;
+   uint8_t  ret=0, ieIdx=0, ueIdx=0, cellIdx=0;
    bool ueCbFound = false;
    uint32_t gnbCuUeF1apId=0, gnbDuUeF1apId=0, bitRateSize=0;
    DuUeCb   *duUeCb = NULL;
@@ -10412,19 +11071,14 @@ uint8_t procF1UeContextSetupReq(F1AP_PDU_t *f1apMsg)
             }
          case ProtocolIE_ID_id_DRBs_ToBeSetup_List:
             {
-               lcId = getDrbLcId(&duUeCb->drbBitMap);
-               if(lcId != RFAILED)
-               {
                   drbCfg = &ueSetReq->protocolIEs.list.array[ieIdx]->value.choice.DRBs_ToBeSetup_List;
-                  if(extractDrbListToSetup(lcId, drbCfg, NULL, drbCfg->list.count, &duUeCb->f1UeDb->duUeCfg))
+
+                  if(extractDrbListToSetupMod(drbCfg, NULL, NULL, drbCfg->list.count, &duUeCb->f1UeDb->duUeCfg, &duUeCb->drbBitMap, NULLP))
                   {
-                     DU_LOG("\nERROR  -->  DU APP : Failed at extractDrbListToSetup()");
+                     DU_LOG("\nERROR  -->  DU APP : Failed at extractDrbListToSetupMod()");
                      //TODO: Update the failure cause in ue context Setup Response
                      ret = RFAILED;
                   }
-               }
-               else 
-                  ret = RFAILED;
                break;
             }
          case ProtocolIE_ID_id_RRCContainer:
@@ -10489,7 +11143,7 @@ uint8_t procF1UeContextSetupReq(F1AP_PDU_t *f1apMsg)
    if(ret == RFAILED)
    {
       /*TODO : Negative case*/
-      // BuildAndSendUeContextSetupRsp(cellId,ueIdx);
+      // BuildAndSendUeContextSetupRsp(cellId,ueId);
       DU_LOG("\nERROR  -->  F1AP: Failed to process UE CNTXT SETUP REQ at procF1UeContextSetupReq()"); 
    }
    else
@@ -10847,13 +11501,13 @@ uint8_t fillDrbSetupList(DRBs_Setup_List_t *drbSetupList, DuUeCfg *ueCfg)
  *    Functionality: Constructs the UE Setup Response and sends
  *                   it to the DU through SCTP.
  *
- * @params[in] uint8_t cellId,uint8_t ueIdx
+ * @params[in] uint8_t cellId,uint8_t ueId
  *
  * @return ROK     - success
  *         RFAILED - failure
  *
  * ****************************************************************/
-uint8_t BuildAndSendUeContextSetupRsp(uint8_t cellId,uint8_t ueIdx)
+uint8_t BuildAndSendUeContextSetupRsp(uint8_t cellId,uint8_t ueId)
 {
    uint8_t   idx, ret, cellIdx, elementCnt;
    uint32_t  gnbCuUeF1apId;   /* gNB-CU UE F1AP Id */
@@ -10864,7 +11518,7 @@ uint8_t BuildAndSendUeContextSetupRsp(uint8_t cellId,uint8_t ueIdx)
    CellGroupConfigRrc_t     *cellGrpCfg = NULLP;
    DuUeCb                   *ueCb = NULLP;
 
-   DU_LOG("\n INFO   -->  F1AP : Building UE Context Setup Response for cellId %d, ueIdx %d\n", cellId, ueIdx);
+   DU_LOG("\n INFO   -->  F1AP : Building UE Context Setup Response for cellId %d, ueId %d\n", cellId, ueId);
 
    while(true)
    {
@@ -10922,9 +11576,9 @@ uint8_t BuildAndSendUeContextSetupRsp(uint8_t cellId,uint8_t ueIdx)
       }
       /* Fetching Ue Cb Info*/
       GET_CELL_IDX(cellId, cellIdx);
-      gnbDuUeF1apId = duCb.actvCellLst[cellIdx]->ueCb[ueIdx-1].gnbDuUeF1apId;
-      gnbCuUeF1apId = duCb.actvCellLst[cellIdx]->ueCb[ueIdx-1].gnbCuUeF1apId;
-      ueCb = &duCb.actvCellLst[cellIdx]->ueCb[ueIdx-1];
+      gnbDuUeF1apId = duCb.actvCellLst[cellIdx]->ueCb[ueId-1].gnbDuUeF1apId;
+      gnbCuUeF1apId = duCb.actvCellLst[cellIdx]->ueCb[ueId-1].gnbCuUeF1apId;
+      ueCb = &duCb.actvCellLst[cellIdx]->ueCb[ueId-1];
 
       idx = 0;
       /*GNB CU UE F1AP ID*/
@@ -11048,23 +11702,23 @@ uint8_t BuildAndSendUeContextSetupRsp(uint8_t cellId,uint8_t ueIdx)
 *         failure = RFAILED
 *
 * ****************************************************************/
-uint8_t BuildAndSendUeCtxtRsp(uint8_t cellId, uint8_t ueIdx)
+uint8_t BuildAndSendUeCtxtRsp(uint8_t cellId, uint8_t ueId)
 {
    uint8_t cellIdx = 0, actionType = 0; 
 
    GET_CELL_IDX(cellId, cellIdx);
-   actionType = duCb.actvCellLst[cellIdx]->ueCb[ueIdx-1].f1UeDb->actionType;
+   actionType = duCb.actvCellLst[cellIdx]->ueCb[ueId-1].f1UeDb->actionType;
 
    switch(actionType)
    {
       case UE_CTXT_SETUP:
          {
-            BuildAndSendUeContextSetupRsp(cellId,ueIdx);
+            BuildAndSendUeContextSetupRsp(cellId,ueId);
             break;
          }
       case UE_CTXT_MOD:
          {
-            BuildAndSendUeContextModRsp(cellId, ueIdx);
+            BuildAndSendUeContextModRsp(cellId, ueId);
             break;
          }
       default:
@@ -11872,6 +12526,7 @@ uint8_t procF1SetupRsp(F1AP_PDU_t *f1apMsg)
 	    DU_LOG("\nERROR  -->  DU_APP : Invalid IE received in F1SetupRsp:%ld",
 		  f1SetRspMsg->protocolIEs.list.array[idx]->id);
       }
+      
       duProcF1SetupRsp();
    }
    
@@ -11931,7 +12586,7 @@ void freeAperDecodeGnbDuAck(GNBDUConfigurationUpdateAcknowledge_t *gnbDuAck)
 uint8_t duProcGnbDuCfgUpdAckMsg(uint8_t transId)
 {
    uint8_t  ieIdx=0, arrIdx=0,ret=ROK;
-   uint8_t  ueId =0 , ueIdx =0;
+   uint8_t  ueId =0 , ueIdx =0, totalActiveUe = 0;
    uint16_t cellId =0, cellIdx =0, crnti=0;
    CmLList *f1apPduNode = NULLP;
    ReservedF1apPduInfo *f1apPduInfo =NULLP;
@@ -11983,28 +12638,38 @@ uint8_t duProcGnbDuCfgUpdAckMsg(uint8_t transId)
                            ret = duSendCellDeletReq(cellId);
                            if(ret == RFAILED)
                            {
-                              DU_LOG("ERROR  --> DU_APP : duProcGnbDuCfgUpdAckMsg(): Failed to send cell delete\
+                              DU_LOG("\nERROR  --> DU_APP : duProcGnbDuCfgUpdAckMsg(): Failed to send cell delete\
                               request for cellId[%d]", cellId);
                            }
                         }
                         else
                         {
-                           for(ueIdx = 0; ueIdx < duCb.actvCellLst[cellIdx]->numActvUes; ueIdx++)
+                           totalActiveUe = duCb.actvCellLst[cellIdx]->numActvUes;
+                           while(totalActiveUe)
                            {
+                              if(duCb.actvCellLst[cellIdx]->ueCb[ueIdx].ueState != UE_ACTIVE)
+                              {
+                                 ueIdx++;
+                                 continue;
+                              }
+
                               crnti = duCb.actvCellLst[cellIdx]->ueCb[ueIdx].crnti;
-                              GET_UE_IDX(crnti,ueId);
+                              GET_UE_ID(crnti,ueId);
+                              /* Sending Ue Context release request only for maximum supporting UEs */
                               ret = BuildAndSendUeContextReleaseReq(cellId, ueId);
                               if(ret == RFAILED)
                               {
-                                 DU_LOG("ERROR  --> DU_APP : duProcGnbDuCfgUpdAckMsg(): Failed to build and send UE delete\
+                                 DU_LOG("\nERROR  --> DU_APP : duProcGnbDuCfgUpdAckMsg(): Failed to build and send UE delete\
                                  request for cellId[%d]", cellId);
                               }
+                              ueIdx++;
+                              totalActiveUe--;
                            }
                         }
                      }
                      else
                      {
-                        DU_LOG("ERROR  --> DU_APP : duProcGnbDuCfgUpdAckMsg(): CellId [%d] not found", cellId);
+                        DU_LOG("\nERROR  --> DU_APP : duProcGnbDuCfgUpdAckMsg(): CellId [%d] not found", cellId);
                         ret = RFAILED;
                      }
                      break;
@@ -12247,7 +12912,7 @@ uint8_t BuildDrbSetupModList(DRBs_SetupMod_List_t *drbSet , DuUeCfg *ueCfg)
    uint8_t drbCnt =0;
    struct DRBs_SetupMod_ItemIEs *drbItemIe;
 
-   drbCnt = 1;
+   drbCnt = ueCfg->numDrbSetupMod;
    drbSet->list.count = drbCnt;
    drbSet->list.size = drbCnt * sizeof(DRBs_SetupMod_ItemIEs_t *);
    DU_ALLOC(drbSet->list.array, drbSet->list.size);
@@ -12374,12 +13039,12 @@ void FreeUeContextModResp(F1AP_PDU_t *f1apMsg)
 *    Functionality:
 *         - Creating the ue context modifcation response 
 *
-* @params[in] uint8_t cellId,uint8_t ueIdx
+* @params[in] uint8_t cellId,uint8_t ueId
 * @return ROK     - success
 *         RFAILED - failure
 *
 * ****************************************************************/
-uint8_t BuildAndSendUeContextModRsp(uint8_t cellId,uint8_t ueIdx)
+uint8_t BuildAndSendUeContextModRsp(uint8_t cellId,uint8_t ueId)
 {
    uint8_t   ieIdx = 0;
    uint8_t   cellIdx =0;
@@ -12441,9 +13106,9 @@ uint8_t BuildAndSendUeContextModRsp(uint8_t cellId,uint8_t ueIdx)
 
       /* Fetching Ue Cb Info*/
       GET_CELL_IDX(cellId, cellIdx);
-      gnbDuUeF1apId = duCb.actvCellLst[cellIdx]->ueCb[ueIdx-1].gnbDuUeF1apId;
-      gnbCuUeF1apId = duCb.actvCellLst[cellIdx]->ueCb[ueIdx-1].gnbCuUeF1apId;
-      ueCb = &duCb.actvCellLst[cellIdx]->ueCb[ueIdx-1];
+      gnbDuUeF1apId = duCb.actvCellLst[cellIdx]->ueCb[ueId-1].gnbDuUeF1apId;
+      gnbCuUeF1apId = duCb.actvCellLst[cellIdx]->ueCb[ueId-1].gnbCuUeF1apId;
+      ueCb = &duCb.actvCellLst[cellIdx]->ueCb[ueId-1];
 
       ieIdx=0;
       ueContextModifyRes->protocolIEs.list.array[ieIdx]->id = ProtocolIE_ID_id_gNB_CU_UE_F1AP_ID;
@@ -12778,9 +13443,10 @@ void freeAperDecodeUeContextModificationReqMsg(UEContextModificationRequest_t *U
 uint8_t procF1UeContextModificationReq(F1AP_PDU_t *f1apMsg)
 {
    UEContextModificationRequest_t *ueContextModifyReq = NULLP;
-   uint8_t  ret = ROK, ieIdx = 0, lcId =0,cellIdx=0, ueIdx=0;
+   uint8_t  ret = ROK, ieIdx = 0, cellIdx=0, ueIdx=0;
    DuUeCb   *duUeCb = NULLP;
    DRBs_ToBeSetupMod_List_t *drbSetupModCfg;
+   DRBs_ToBeModified_List_t *drbModifiedCfg;
    uint32_t gnbCuUeF1apId, gnbDuUeF1apId;
 
    ueContextModifyReq = &f1apMsg->choice.initiatingMessage->value.choice.UEContextModificationRequest;
@@ -12799,6 +13465,7 @@ uint8_t procF1UeContextModificationReq(F1AP_PDU_t *f1apMsg)
                break;
             }
          case ProtocolIE_ID_id_DRBs_ToBeSetupMod_List:
+         case ProtocolIE_ID_id_DRBs_ToBeModified_List:
             {
                for(cellIdx = 0; cellIdx < duCb.numActvCells; cellIdx++)
                {
@@ -12809,19 +13476,37 @@ uint8_t procF1UeContextModificationReq(F1AP_PDU_t *f1apMsg)
                      {
 
                         duUeCb = &duCb.actvCellLst[cellIdx]->ueCb[ueIdx];
-                        lcId = getDrbLcId(&duUeCb->drbBitMap);
-                        if(lcId != RFAILED)
+                        if(duUeCb->f1UeDb == NULLP)
                         {
                            DU_ALLOC(duUeCb->f1UeDb, sizeof(F1UeContextSetupDb));
-                           if(duUeCb->f1UeDb)
+                        }
+                        if(duUeCb->f1UeDb)
+                        {
+                           duUeCb->f1UeDb->actionType = UE_CTXT_MOD;
+                           if(ueContextModifyReq->protocolIEs.list.array[ieIdx]->value.present ==\
+                                 UEContextModificationRequestIEs__value_PR_DRBs_ToBeSetupMod_List)
                            {
-                              duUeCb->f1UeDb->actionType = UE_CTXT_MOD;
                               drbSetupModCfg = &ueContextModifyReq->protocolIEs.list.array[ieIdx]->value.\
                               choice.DRBs_ToBeSetupMod_List;
-                              if(extractDrbListToSetup(lcId, NULL, drbSetupModCfg ,drbSetupModCfg->list.count, \
-                              &duUeCb->f1UeDb->duUeCfg))
+                              
+                              if(extractDrbListToSetupMod(NULL, drbSetupModCfg, NULL, drbSetupModCfg->list.count,\
+                              &duUeCb->f1UeDb->duUeCfg, &duUeCb->drbBitMap, NULL))
                               {
-                                 DU_LOG("\nERROR  -->  DU APP : Failed at extractDrbListToSetup()");
+                                 DU_LOG("\nERROR  -->  DU APP : Failed at extractDrbListToSetupMod() for DrbSetupModList");
+                                 ret = RFAILED;
+                              }
+                           }
+
+                           if(ueContextModifyReq->protocolIEs.list.array[ieIdx]->value.present == \
+                                  UEContextModificationRequestIEs__value_PR_DRBs_ToBeModified_List)
+
+                           {
+                              drbModifiedCfg = &ueContextModifyReq->protocolIEs.list.array[ieIdx]->value.\
+                              choice.DRBs_ToBeModified_List;
+                              if(extractDrbListToSetupMod(NULL, NULL, drbModifiedCfg, drbModifiedCfg->list.count,\
+                                 &duUeCb->f1UeDb->duUeCfg, &duUeCb->drbBitMap, &duUeCb->rlcUeCfg))
+                              {
+                                 DU_LOG("\nERROR  -->  DU APP : Failed at extractDrbListToSetupMod() for DrbModifiedList");
                                  ret = RFAILED;
                               }
                            }
@@ -12901,7 +13586,7 @@ void FreeUeContextReleaseReq(F1AP_PDU_t *f1apMsg)
 *         RFAILED - failure
 *
 * *************************************************************/
-uint8_t BuildAndSendUeContextReleaseReq(uint16_t cellId, uint8_t ueIdx)
+uint8_t BuildAndSendUeContextReleaseReq(uint16_t cellId, uint8_t ueId)
 {
    bool memAllocFail = false;
    uint8_t ieIdx =0;
@@ -12975,14 +13660,14 @@ uint8_t BuildAndSendUeContextReleaseReq(uint16_t cellId, uint8_t ueIdx)
       }
       else
       {
-         GET_CRNTI(crnti, ueIdx);
-         if(duCb.actvCellLst[cellIdx]->ueCb[ueIdx-1].crnti != crnti)
+         GET_CRNTI(crnti, ueId);
+         if(duCb.actvCellLst[cellIdx]->ueCb[ueId-1].crnti != crnti)
          {
             DU_LOG("\nERROR  -->  F1AP : BuildAndSendUeContextReleaseReq(): crnti[%d] does not exist", crnti);
             break;
          }
-         gnbDuUeF1apId = duCb.actvCellLst[cellIdx]->ueCb[ueIdx-1].gnbDuUeF1apId;
-         gnbCuUeF1apId = duCb.actvCellLst[cellIdx]->ueCb[ueIdx-1].gnbCuUeF1apId;
+         gnbDuUeF1apId = duCb.actvCellLst[cellIdx]->ueCb[ueId-1].gnbDuUeF1apId;
+         gnbCuUeF1apId = duCb.actvCellLst[cellIdx]->ueCb[ueId-1].gnbCuUeF1apId;
       }
 
       ieIdx=0; 
@@ -13195,7 +13880,7 @@ uint8_t BuildAndSendUeContextReleaseComplete(uint16_t cellId, uint32_t gnbCuUeF1
       break;
    }while(true);
    
-   if(ret == ROK)
+   if(ret == ROK && (duCb.actvCellLst[cellId-1]->numActvUes == 0))
    {
       duCb.actvCellLst[cellId-1]->cellStatus = DELETION_IN_PROGRESS;
       ret = duSendCellDeletReq(cellId);
@@ -13320,7 +14005,7 @@ uint8_t procF1UeContextReleaseCommand(F1AP_PDU_t *f1apMsg)
                   {
                      for(cellIdx = 0; cellIdx < duCb.numActvCells; cellIdx++)
                      {
-                        for(ueIdx = 0; ueIdx < duCb.actvCellLst[cellIdx]->numActvUes; ueIdx++)
+                        for(ueIdx = 0; ueIdx < MAX_NUM_UE; ueIdx++)
                         {
                            if((duCb.actvCellLst[cellIdx]->ueCb[ueIdx].gnbDuUeF1apId == gnbDuUeF1apId)&&\
                                  (duCb.actvCellLst[cellIdx]->ueCb[ueIdx].gnbCuUeF1apId == gnbCuUeF1apId))
@@ -13369,7 +14054,7 @@ uint8_t procF1UeContextReleaseCommand(F1AP_PDU_t *f1apMsg)
                      }
                      if(!ueIdxFound)
                      {
-                        DU_LOG("\nERROR  -->  F1AP: DuUeCb is not found at procF1UeContextSetupReq()");
+                        DU_LOG("\nERROR  -->  F1AP: DuUeCb is not found at procF1UeContextReleaseCommand()");
                         ret = RFAILED;
                      }
 

@@ -39,6 +39,7 @@ extern "C" {
 #endif /* __cplusplus */
 
 #include "du_log.h"
+#include "du_app_rlc_inf.h"
  
 
 #define EKWxxx 1
@@ -465,8 +466,9 @@ extern "C" {
 #ifdef LTE_L2_MEAS
 #define EVENT_RLC_L2_TMR                  6
 #endif /* LTE_L2_MEAS */
-#define EVENT_RLC_THROUGHPUT_TMR          7
+#define EVENT_RLC_UE_THROUGHPUT_TMR       7
 #define EVENT_RLC_UE_DELETE_TMR           8
+#define EVENT_RLC_SNSSAI_THROUGHPUT_TMR   9
 
 /* Wait time for RLC Timers */
 #define RLC_UE_DELETE_WAIT_TIME           5 /*in milliseconds */
@@ -1707,22 +1709,49 @@ typedef struct rlcUlCb
 #endif /* LTE_L2_MEAS */
 }RlcUlCb;
 
+typedef enum
+{
+   SEARCH,
+   CREATE,
+   DELETE
+}RlcSnssaiActionType;
+
 typedef struct rlcThptPerUe
 {
    uint16_t ueId;
    uint64_t dataVol;
 }RlcThptPerUe;
 
+typedef struct rlcTptPerSnssai
+{
+   Snssai   *snssai;
+   uint64_t dataVol;
+   double   tpt;
+}RlcTptPerSnssai;
+
+
+typedef struct rlcSnssaiTputInfo
+{
+   CmTimer       snssaiThptTmr;                   /* Throughput Timer */
+   CmLListCp     *dlTputPerSnssaiList; 
+   CmLListCp     *ulTputPerSnssaiList;
+}RlcSnssaiTputInfo;
+
+typedef struct rlcUeTputInfo
+{
+   CmTimer       ueThptTmr;                   /* Throughput Timer */
+   uint8_t       numActvUe;                 /* Number of Active UEs */
+   RlcThptPerUe  thptPerUe[MAX_NUM_UE];     /* Throughput calculated per UE */
+}RlcUeTputInfo;
 /**
  * @brief  Structure to hold information about throughput at  RLC
  * 
  */
 typedef struct rlcThpt
 {
-   Inst          inst;                      /* RLC instance */
-   CmTimer       thptTmr;                   /* Throughput Timer */
-   uint8_t       numActvUe;                 /* Number of Active UEs */
-   RlcThptPerUe  thptPerUe[MAX_NUM_UE];     /* Throughput calculated per UE */
+   Inst               inst;                /* RLC instance */
+   RlcUeTputInfo      ueTputInfo;
+   RlcSnssaiTputInfo  snssaiTputInfo;
 }RlcThpt;
 
 /** 
@@ -1760,6 +1789,7 @@ typedef struct rlcCb
 
 RlcCb *rlcCb[MAX_RLC_INSTANCES];   /*!< RLC global control block */
 
+CmLListCp *arrTputPerSnssai[DIR_BOTH]; /*Stores the address of Througput LL*/
 /****************************************************************************
  *                      Declarations
  ***************************************************************************/
@@ -1775,9 +1805,18 @@ void rlcStopTmr  ARGS((RlcCb *gCb, PTR cb, uint8_t tmrType));
 
 bool rlcChkTmr ARGS((RlcCb *gCb,PTR cb, S16 tmrEvnt));
 
-void rlcThptTmrExpiry(PTR cb);
+void rlcUeThptTmrExpiry(PTR cb);
 
 uint8_t  rlcUeDeleteTmrExpiry(PTR cb);
+
+void rlcSnssaiThptTmrExpiry(PTR cb);
+RlcTptPerSnssai* rlcHandleSnssaiTputlist(RlcCb *gCb, Snssai *snssai,\
+                                  RlcSnssaiActionType action, Direction dir);
+uint8_t rlcCalculateTputPerSnssai(CmLListCp *snssaiList, Direction dir);
+uint8_t rlcDelTputSnssaiList(RlcCb *gCb, Direction dir);
+uint8_t BuildSliceReportToDu(uint8_t snssaiCnt);
+bool rlcFindSliceEntry(SliceIdentifier snssaiVal, uint8_t *snssaiIdx,\
+                      SlicePmList *sliceStats);
 
 #ifdef LTE_L2_MEAS
 Void rlcLmmSendAlarm ARGS (( RlcCb *gCb,

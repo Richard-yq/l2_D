@@ -765,7 +765,219 @@ uint8_t pucchResourceSet[MAX_PUCCH_RES_SET_IDX][4] = {
 { 1,   0, 14,  0 }, /* index 15 */
 };
 
+/* Minimum Msg3 scheduling time should be calculated based on N1+N2+NTAmax+0.5
+ * ms formula.
+ * Refer spec 38.213 section 8.3.
+ * Harcoding the minimum msg3 scheduling for now */
+uint8_t minMsg3SchTime[MAX_NUM_MU] = {6, 6, 6, 6};
+
 uint8_t defaultUlAckTbl[DEFAULT_UL_ACK_LIST_COUNT]= {1, 2, 3 , 4, 5, 6, 7, 8};
+
+/**
+ * @brief Function to find first DMRS symbol in PDSCH
+ *
+ * @details
+ *
+ *     Function: findDmrsStartSymbol
+ *
+ *     This function finds first DMRS symbol using DMRS symbol 
+ *     position bitmap.
+ *
+ *  @param[in]  DMRS symbol position bitmap
+ *  @return     Success : First DRMS symbol
+ *              Failure : MAX_SYMB_PER_SLOT 
+ **/
+uint8_t findDmrsStartSymbol(uint16_t dlDmrsSymbBitMap)
+{
+   uint8_t position = 0;
+   uint16_t mask = 1;
+
+   while(position < MAX_SYMB_PER_SLOT)
+   {
+      if(dlDmrsSymbBitMap & mask)
+         break;  
+      mask = mask << 1;
+      position++;
+   }
+   return position;   
+}
+
+/**
+ * @brief Function to add a node to a linked list
+ *
+ * @details
+ *
+ *     Function: addNodeToLList
+ *
+ *     This function adds a new node to the linked list
+ *
+ *  @param[in]  Pointer to the list
+ *              Pointer to node to be added
+ *              Pointer to current node
+ *  @return     ROK
+ *              RFAILED
+ **/
+uint8_t addNodeToLList(CmLListCp *llist, void *blockToAdd, CmLList *currNode)
+{
+   CmLList  *newNode;
+
+   SCH_ALLOC(newNode, sizeof(CmLList));
+   if(newNode)
+   {
+      newNode->node = (PTR)blockToAdd;
+      
+      if(currNode == NULLP)
+         cmLListAdd2Tail(llist, newNode);
+      else
+      {
+         llist->crnt = currNode;
+         cmLListInsAfterCrnt(llist, newNode);
+      }
+      return ROK;
+   } 
+   return RFAILED;
+}
+
+/**
+ * @brief Function to delete a node from linked list
+ *
+ * @details
+ *
+ *     Function: deleteNodeFromLList
+ *
+ *     This function deletes a node from the linked list
+ *
+ *  @param[in]  Pointer to the list
+ *              Pointer to node to be deleted
+ *  @return     Pointer to the deleted node
+ **/
+uint8_t deleteNodeFromLList(CmLListCp *llist, CmLList *node)
+{
+   node = cmLListDelFrm(llist, node);
+   SCH_FREE(node, sizeof(CmLList));
+
+   return ROK;
+}
+
+/**
+ * @brief Checks if requested PRBs are free
+ *
+ * @details
+ *
+ *     Function: isPrbAvailable
+ *
+ *     This functions loops through all free PRB blocks and 
+ *     checks if request PRB block is available for allocation
+ *
+ *  @param[in]  List of free PRB blocks
+ *              First PRB requested
+ *              Total number of PRB requested
+ *
+ *  @return     Returns Pointer to free block
+ *              NULL
+ **/
+CmLList* isPrbAvailable(CmLListCp *freePrbBlockList, uint16_t startPrb, uint16_t numPrb)
+{
+   uint16_t      endPrb = 0;
+   CmLList       *node = NULLP;
+   FreePrbBlock  *freeBlock = NULLP;
+
+   endPrb = startPrb + numPrb - 1; 
+
+   /* Iterate through all blocks of free PRB to check if requested PRBs can be assigned */
+   node = freePrbBlockList->first;
+   while(node)
+   {
+      freeBlock = (FreePrbBlock *)node->node;
+
+      /* Check if requested number of blocks can be allocated from the current block */
+      if(freeBlock->numFreePrb < numPrb)
+         continue;
+
+      /* Check if requested PRBs belong within the range of current free block */
+      if(((startPrb >= freeBlock->startPrb) && (startPrb <= freeBlock->endPrb)) && \
+         ((endPrb >= freeBlock->startPrb) && (endPrb <= freeBlock->endPrb)))
+      {
+         return node;
+      }
+
+      /* If current block is unable to provide resources, check the next block */
+      node = node->next;
+   }
+   return NULLP;
+}
+
+/**
+ * @brief Function to update free PRB list
+ *
+ * @details
+ *
+ *     Function: removeAllocatedPrbFromFreePrbList
+ *
+ *     This function removes the allocated PRBs from the
+ *     list of free PRBs
+ *
+ *  @param[in]  Pointer to the list
+ *              Pointer to node from which PRB was allocated
+ *              Start PRB allocated
+ *              Number of PRBs allocated
+ *  @return     void
+ **/
+void removeAllocatedPrbFromFreePrbList(CmLListCp *freePrbBlockList, CmLList *node, uint16_t startPrb, uint16_t numPrb)
+{
+   uint16_t      endPrb;
+   FreePrbBlock  *newBlock = NULLP;
+   FreePrbBlock  *freeBlock = (FreePrbBlock *)node->node;
+
+   if(!node) 
+      return;
+   
+   endPrb = startPrb + numPrb -1;
+
+   /* If the whole block is allocated, remove it from linked list */
+   if(freeBlock->numFreePrb == numPrb)
+   {
+      if(deleteNodeFromLList(freePrbBlockList, node) == ROK)
+         SCH_FREE(freeBlock, sizeof(FreePrbBlock));
+   }
+
+   /* If PRB is allocated from start of free block, move the start of free block
+    * after last alloctaed PRB */
+   else if(freeBlock->startPrb == startPrb)
+   {
+      freeBlock->startPrb = endPrb+1;
+      freeBlock->numFreePrb = freeBlock->endPrb - freeBlock->startPrb +1;
+   }
+
+   /* If PRB is allocated from end of free block, move the end of free block
+    * before the first allocated PRB */
+   else if(freeBlock->endPrb == endPrb)
+   {
+      freeBlock->endPrb = startPrb-1;
+      freeBlock->numFreePrb = freeBlock->endPrb - freeBlock->startPrb +1;
+   }
+
+   /* If PRBs are allocated somewhere in between the free block, split it into 2
+    * nodes. Fist node contains free PRBs after the allocated PRBs. Second node
+    * contains free PRBs present before the allocated PRBs */
+   else
+   {
+      /* Block 2 */
+      SCH_ALLOC(newBlock, sizeof(FreePrbBlock));
+      if(newBlock)
+      {
+         newBlock->startPrb = freeBlock->startPrb;
+         newBlock->endPrb = startPrb-1;
+         newBlock->numFreePrb = newBlock->endPrb - newBlock->startPrb +1;
+         addNodeToLList(freePrbBlockList, newBlock, node);
+      }
+
+      /* Block 1 */
+      freeBlock->startPrb = endPrb+1;
+      freeBlock->numFreePrb = freeBlock->endPrb - freeBlock->startPrb +1;
+   }
+}
+
 /**
  * @brief frequency domain allocation function. 
  *
@@ -833,7 +1045,7 @@ uint16_t schCalcNumPrb(uint16_t tbSize, uint16_t mcs, uint8_t numSymbols)
    nreDash = ceil( (12 * numSymbols) - numDmrsRePerPrb - 0);
 
    if (nreDash > 156)
-      nre = 156;
+      nreDash = 156;
 
    numPrb = ceil((float)nre / nreDash);   
    return numPrb;
@@ -915,6 +1127,7 @@ uint16_t schCalcTbSizeFromNPrb(uint16_t numPrb, uint16_t mcs, uint8_t numSymbols
    }
    return tbSize;
 }
+
 /**
  * @brief fetching ueCb from cellCb
  *
@@ -930,9 +1143,9 @@ uint16_t schCalcTbSizeFromNPrb(uint16_t numPrb, uint16_t mcs, uint8_t numSymbols
  **/
 SchUeCb* schGetUeCb(SchCellCb *cellCb, uint16_t crnti)
 {
-   uint16_t ueIdx;
-   GET_UE_IDX(crnti, ueIdx);
-   return &(cellCb->ueCb[ueIdx -1]);
+   uint16_t ueId;
+   GET_UE_ID(crnti, ueId);
+   return &(cellCb->ueCb[ueId -1]);
 }
 
 /**
@@ -949,16 +1162,37 @@ SchUeCb* schGetUeCb(SchCellCb *cellCb, uint16_t crnti)
  **/
 void schInitUlSlot(SchUlSlotInfo *schUlSlotInfo)
 {
-   memset(schUlSlotInfo, 0, sizeof(SchUlSlotInfo));
-   schUlSlotInfo->totalPrb = MAX_NUM_RB;
-   for(uint8_t itr=0; itr<SCH_SYMBOL_PER_SLOT; itr++)
+   CmLList *node = NULLP, *next = NULLP;
+   FreePrbBlock *freeBlock;
+
+   /* Delete the old blocks */
+   if(schUlSlotInfo->prbAlloc.freePrbBlockList.count)
    {
-      schUlSlotInfo->assignedPrb[itr] = 0;
+      node = schUlSlotInfo->prbAlloc.freePrbBlockList.first;
    }
-   schUlSlotInfo->resAllocBitMap = 0;
+   while(node)
+   {
+      next = node->next;
+      freeBlock = (FreePrbBlock *)node->node;
+      if(deleteNodeFromLList(&schUlSlotInfo->prbAlloc.freePrbBlockList, node) == ROK)
+         SCH_FREE(freeBlock, sizeof(FreePrbBlock));
+      node = next;
+   }
+
+   /* Initilize UL Slot info and mark all PRBs as free */
+   memset(schUlSlotInfo, 0, sizeof(SchUlSlotInfo));
+   cmLListInit(&schUlSlotInfo->prbAlloc.freePrbBlockList);
+   SCH_ALLOC(freeBlock, sizeof(FreePrbBlock));
+   if(freeBlock)
+   {
+      freeBlock->numFreePrb = MAX_NUM_RB;
+      freeBlock->startPrb = 0;
+      freeBlock->endPrb = MAX_NUM_RB-1;
+      addNodeToLList(&schUlSlotInfo->prbAlloc.freePrbBlockList, freeBlock, NULL);
+   }
+
    schUlSlotInfo->puschCurrentPrb = PUSCH_START_RB;
    schUlSlotInfo->schPuschInfo = NULLP;
-
 }
 
 /**
@@ -975,26 +1209,399 @@ void schInitUlSlot(SchUlSlotInfo *schUlSlotInfo)
  **/
 void schInitDlSlot(SchDlSlotInfo *schDlSlotInfo)
 {
-   memset(schDlSlotInfo, 0, sizeof(SchDlSlotInfo));
-   schDlSlotInfo->totalPrb = MAX_NUM_RB;
-   for(uint8_t itr=0; itr<SCH_SYMBOL_PER_SLOT; itr++)
-   {
-      schDlSlotInfo->assignedPrb[itr] = 0;
-   }
-   schDlSlotInfo->resAllocBitMap = 0; 
-   for(uint8_t itr=0; itr<MAX_SSB_IDX; itr++)
-   {
-      memset(&schDlSlotInfo->ssbInfo[itr], 0, sizeof(SsbInfo));
-   }
-#if 0
-   //make allocation for SSB
-   if(cell->firstSsbTransmitted)
-   {
-      //TODO check if this slot and sfn are for ssb
+   CmLList *node = NULLP, *next = NULLP;
+   FreePrbBlock *freeBlock;
 
+   /* Delete the old blocks */
+   if(schDlSlotInfo->prbAlloc.freePrbBlockList.count)
+      node = schDlSlotInfo->prbAlloc.freePrbBlockList.first;
+   while(node)
+   {
+      next = node->next;
+      freeBlock = (FreePrbBlock *)node->node;
+      if(deleteNodeFromLList(&schDlSlotInfo->prbAlloc.freePrbBlockList, node) == ROK)
+         SCH_FREE(freeBlock, sizeof(FreePrbBlock));
+      node = next;
    }
-#endif
+
+   /* Initilize DL Slot info and mark all PRBs as free */
+   memset(schDlSlotInfo, 0, sizeof(SchDlSlotInfo));
+   cmLListInit(&schDlSlotInfo->prbAlloc.freePrbBlockList);
+   SCH_ALLOC(freeBlock, sizeof(FreePrbBlock));
+   if(freeBlock)
+   {
+      freeBlock->numFreePrb = MAX_NUM_RB;
+      freeBlock->startPrb = 0;
+      freeBlock->endPrb = MAX_NUM_RB-1;
+      addNodeToLList(&schDlSlotInfo->prbAlloc.freePrbBlockList, freeBlock, NULL);
+   }
 }
+
+/**
+ * @brief Fill resource bit map
+ *
+ * @details
+ *
+ *     Function: fillPrbBitmap
+ *
+ *     This function updates bitMap to mark the allocated PRBs
+ *
+ *  @param[in]  schDlSlotInfo
+ *  @return     void
+ **/
+bool fillPrbBitmap(uint64_t *prbBitMap, uint16_t startPrb, uint16_t numPrb)
+{
+   uint16_t bitMapIdx = 0;
+   uint16_t offsetInFirstIdx = 0;
+   uint32_t numBitsToSetInFirstIdx = 0;
+   uint64_t mask = MASK_BIT64_ON;
+   uint64_t bitmapBackup[PRB_BITMAP_MAX_IDX];
+
+   /* Store backup of the bitmap in order to roll back if PRB allocation fails */
+   memcpy(bitmapBackup, prbBitMap, sizeof(bitmapBackup));
+
+   /* Calculate the bitmap idx and offset of bit in that idx, to start
+    * allocating PRBs from */
+   bitMapIdx = startPrb / PRB_BITMAP_IDX_LEN;
+   offsetInFirstIdx = startPrb % PRB_BITMAP_IDX_LEN;
+
+   /* If number of PRBs allocated >= number of unset bits in first idx starting from offset bit
+    * then set all bits in first idx starting from offset bit
+    * else set bits equal to number of PRBs allocated
+    */
+   numBitsToSetInFirstIdx = \
+      (numPrb >= (PRB_BITMAP_IDX_LEN-offsetInFirstIdx)) ? (PRB_BITMAP_IDX_LEN-offsetInFirstIdx) : numPrb;
+
+   mask = mask >> (PRB_BITMAP_IDX_LEN-numBitsToSetInFirstIdx);
+   mask = mask<<offsetInFirstIdx;
+
+   /* If PRBs to be allocated are not already in use, mark these PRBs as allocated */
+   if(!(prbBitMap[bitMapIdx] & mask))
+   {
+      prbBitMap[bitMapIdx] = prbBitMap[bitMapIdx] | mask;
+
+      bitMapIdx++;
+      numPrb = numPrb - numBitsToSetInFirstIdx;
+      /* Set all bits in a bitMapIdx until remaining numPrb is less than PRB_BITMAP_IDX_LEN */
+      while(numPrb > PRB_BITMAP_IDX_LEN)
+      {
+         if(prbBitMap[bitMapIdx])
+         {
+            memcpy(prbBitMap, bitmapBackup, sizeof(bitmapBackup));
+            return RFAILED;
+         }
+         prbBitMap[bitMapIdx] = MASK_BIT64_ON;
+         bitMapIdx++;
+         numPrb = numPrb - PRB_BITMAP_IDX_LEN;
+      }
+
+      /* Set bits for the remaining PRBs */
+      if(numPrb)
+      {
+         mask = MASK_BIT64_ON;
+         mask = mask >> (PRB_BITMAP_IDX_LEN-numPrb);
+         if(!(prbBitMap[bitMapIdx] & mask))
+         {
+            prbBitMap[bitMapIdx] = prbBitMap[bitMapIdx] | mask;
+         }
+         else
+         {
+            memcpy(prbBitMap, bitmapBackup, sizeof(bitmapBackup));
+            return RFAILED;
+         }
+      }
+   }
+   else
+   {
+      return RFAILED;
+   }
+   
+   return ROK;
+}
+
+
+/**************************************************************************
+ *
+ * @brief Update the LCID Node in LCLL as per ActionType
+ *
+ * @details
+ *
+ *    Function : handleLcLList
+ *
+ *    Functionality:
+ *     Search LCID in LCLL or if not found, create,Delete, or return
+ *     node for this LCID
+ *
+ * @params[in] I/P > lcLinkList pointer (LcInfo list)
+ *             I/P > lcId
+ *             I/P > ActionType (Create,Delete or Just search) 
+ *
+ * @return lcNode > Pointer to the Node for that LcInfo
+ *         If NULLP, FATAL FAILURE
+ *
+ * ***********************************************************************/
+LcInfo* handleLcLList(CmLListCp *lcLL, uint8_t lcId, ActionTypeLcLL action)
+{
+   CmLList  *node = NULLP;
+   LcInfo *lcNode = NULLP;
+   bool found = FALSE;
+
+   if(lcLL == NULLP)
+   {
+      DU_LOG("\nERROR  -->  SCH: LcList doesnt exist");
+      return NULLP;
+   }
+   node = lcLL->first;
+
+   /*Traversing the LC LinkList*/
+   while(node)
+   {
+      lcNode = (LcInfo *)node->node;
+      if(lcNode->lcId == lcId)
+      { 
+         found = TRUE;
+         break;
+      }
+      node = node->next;
+   }//end of while
+
+   switch(action)
+   {
+      case SEARCH:
+         {
+            if(!found)
+            {
+               lcNode = NULLP;
+            }
+            return lcNode;
+         }
+
+      case CREATE:
+         {
+            if(node != NULLP)
+               return lcNode;
+
+            /*Need to add a new node for this LC*/
+
+            /*List is empty; Initialize the LL ControlPointer*/
+            if(lcLL->count == 0)
+            {
+               cmLListInit(lcLL);
+            }
+
+            lcNode = NULLP;
+            /*Allocate the List*/
+            SCH_ALLOC(lcNode, sizeof(LcInfo));
+            if(lcNode)
+            {
+               lcNode->lcId = lcId;
+               lcNode->reqBO = 0;
+               lcNode->allocBO = 0;
+               lcNode->allocPRB = 0;
+            }
+            else
+            {
+               DU_LOG("\nERROR  -->  SCH : Allocation of List failed,lcId:%d",lcId);
+               return NULLP;
+            }
+
+            if(addNodeToLList(lcLL, lcNode, NULLP) == RFAILED)
+            {
+               DU_LOG("\nERROR  -->  SCH : failed to Add Node,lcId:%d",lcId);
+               SCH_FREE(lcNode, sizeof(LcInfo));
+               return NULLP;
+            }
+            return lcNode;
+         }
+
+      case DELETE:
+         {
+            if(!found ||  lcNode == NULLP)
+            {
+               DU_LOG("\nERROR  -->  SCH: LCID%d not found; thus Deletion unsuccessful",lcId);
+            }
+            else
+            {
+               if(deleteNodeFromLList(lcLL, node) == ROK)
+                  SCH_FREE(lcNode, sizeof(LcInfo));
+
+               DU_LOG("\nDEBUG  -->  SCH: LCID%d Deleted successfully",lcId);
+            }
+            return NULLP; 
+         }
+      default:
+         {
+            DU_LOG("\nERROR  -->  SCH: Action type wrong: %d",action);
+            break;
+         }
+   }
+   return lcNode;
+}
+
+/**************************************************************************
+ *
+ * @brief Update ReqPRB for a partiular LCID in LC Linklist 
+ *
+ * @details
+ *
+ *    Function : updateLcListReqPRB
+ *
+ *    Functionality:
+ *     Update ReqPRB for a partiular LCID in LC Linklist 
+ *
+ * @params[in] I/P > lcLinkList pointer (LcInfo list)
+ *             I/P > lcId
+ *             I/P > reqPRB
+ *             I/P > payloadSize
+ *
+ * @return ROK/RFAILED
+ *
+ * ***********************************************************************/
+uint8_t updateLcListReqPRB(CmLListCp *lcLL, uint8_t lcId, uint32_t payloadSize)
+{
+   LcInfo    *lcNode = NULLP;
+
+   lcNode = handleLcLList(lcLL, lcId, CREATE);
+
+   if(lcNode == NULLP)
+   {
+      DU_LOG("\nERROR  -->  SCH : LC is neither present nor able to create in List lcId:%d",lcId);
+      return RFAILED;
+   }
+   lcNode->reqBO = payloadSize;
+   lcNode->allocBO = 0; 
+   lcNode->allocPRB = 0; /*Re-Initializing the AllocPRB*/
+   return ROK;
+}
+
+/**************************************************************************
+ *
+ * @brief Delete entire LC Linklist 
+ *
+ * @details
+ *
+ *    Function : deleteLcLL
+ *
+ *    Functionality:
+ *      Delete entire LC Linklist 
+ *
+ * @params[in] lcLinkList pointer (LcInfo list)
+ *
+ * @return void
+ *
+ * ***********************************************************************/
+void deleteLcLL(CmLListCp *lcLL)
+{
+   CmLList *node = NULLP, *next = NULLP;
+   LcInfo *lcNode = NULLP;
+
+   if(lcLL == NULLP)
+   {
+      DU_LOG("\nERROR  -->  SCH: LcList doesnt exist");
+      return;
+   }
+   node = lcLL->first;
+
+   while(node)
+   {
+      next = node->next;
+      lcNode = (LcInfo *)node->node;
+      if(deleteNodeFromLList(lcLL, node) == ROK)
+         SCH_FREE(lcNode, sizeof(LcInfo));
+      node = next;
+   }
+}
+
+/****************************************************************************
+ *
+ * @brief Calculate the Estimated TBS Size based on Spec 38.421 , Sec 5.3.1.2
+ *
+ * @details
+ *
+ *    Function : calculateEstimateTBSize
+ *
+ *    Functionality:
+ *       TBS Size calculation requires numPRB. Since exactPRB for reqBO is unknown thus 
+ *       will give the PRB value(from 0 to maxRB) one by one and 
+ *       try to find the TBS size closest to reqBO
+ *
+ * @params[in] I/P > reqBO, mcsIdx, num PDSCH symbols, 
+ *             I/P > maxRB: Maximum PRB count to reach for calculating the TBS
+ *             O/P > estPrb : Suitable PRB count for reaching the correct TBS
+ *       
+ *
+ * @return TBS Size > Size which will can be allocated for this LC
+ *        
+ *
+ *************************************************************************/
+uint32_t calculateEstimateTBSize(uint32_t reqBO, uint16_t mcsIdx,uint8_t numSymbols,\
+                                   uint16_t maxPRB, uint16_t *estPrb)
+{
+   uint32_t tbs = 0, effecBO = 0;
+
+   *estPrb = MIN_PRB;
+   /*Loop Exit: Either estPRB reaches the maxRB or TBS is found greater than equal to reqBO*/
+   do
+   {
+      tbs = schCalcTbSizeFromNPrb(*estPrb, mcsIdx, numSymbols);
+
+      /*TBS size calculated in above function is in Bits. 
+       * So to convert it into Bytes , we right shift by 3. 
+       * Eg: tbs=128 bits(1000 0000) ; Right Shift by 3: Tbs = 0001 0000(16 bytes)*/
+      tbs = tbs >> 3;
+      *estPrb += 1;
+   }while((tbs < reqBO) && (*estPrb < maxPRB));
+
+   /*Effective BO is the Grant which can be provided for this LC.
+    * Here,it is decided based on whether we can fully cater its requirment (reqBO) 
+    * or has to provide lesser grant due to resource limitation.
+    * Thus effective BO/Grant for this LC will be min of TBS calculated and reqBO*/
+   effecBO = MIN(tbs,reqBO);
+   return (effecBO);
+}
+/*Below function for printing will be used in future so disabling it for now*/
+#if 0
+/****************************************************************************
+ *
+ * @brief Print the LC in list for debugging purpose 
+ *
+ * @details
+ *
+ *    Function : printLcLL
+ *
+ *    Functionality:
+ *            For debugging purpose, for printing the LC in the order and
+ *            parameters
+ *
+ * @params[in] LcList pointer 
+ *       
+ * @return void 
+ *        
+ *************************************************************************/
+void printLcLL(CmLListCp *lcLL)
+{
+   CmLList *node = NULLP;
+   LcInfo *lcNode = NULLP;
+
+   if(lcLL == NULLP)
+   {
+      DU_LOG("\nINFO   -->  SCH: LcList doesnt exist");
+      return;
+   }
+   node = lcLL->first;
+   while(node)
+   {
+      lcNode = (LcInfo *)node->node;
+      if(lcNode)
+      {
+         DU_LOG("\nINFO   -->  SCH : LcID:%d, [reqBO, allocBO, allocPRB]:[%d,%d,%d]",\
+               lcNode->lcId,lcNode->reqBO, lcNode->allocBO, lcNode->allocPRB);
+      }
+
+      node = node->next;
+   }
+}
+#endif
 
 #ifdef NR_TDD
 
@@ -1097,6 +1704,60 @@ uint8_t calculateSlotPatternLength(uint8_t scs, uint8_t periodicity)
    return slotPatternLength;
 }
 #endif
+
+/*
+ * As per FAPI spec, 
+ * Frequency domain resources is a bitmap defining non-overlapping groups of 6 PRBs in ascending order.
+ * [TS38.213 10.1]. Bitmap of uint8 array. 45 bits.
+ *
+ * As per IAPI,
+ * CORESET-freqdom.frequencyDomainResources : The bits of the bitmap have a one-to-one mapping with
+ * non-overlapping groups of 6 RBs. The most significant bit of the first word corresponds to
+ * the most significant bit defined in 38.331.
+ *
+ * FAPI and IAPI both are 45 bits. Mapped from bit 0 LS Byte for the FAPI and
+ * bit 0 LS U32 entry for IAPI.
+ * FAPI is to be filled in following format such that Intel L1 is able to decode it :
+ *
+ *            FAPI                                 IAPI 
+ * FreqDomainResource[0] bits 7-0     ->    nFreqDomain[0] bits 7-0
+ * FreqDomainResource[1] bits 7-0     ->    nFreqDomain[0] bits 15-8
+ * FreqDomainResource[2] bits 7-0     ->    nFreqDomain[0] bits 23-16
+ * FreqDomainResource[3] bits 7-0     ->    nFreqDomain[0] bits 31-24
+ * FreqDomainResource[4] bits 7-0     ->    nFreqDomain[1] bits 7-0
+ * FreqDomainResource[5] bits 7-0     ->    nFreqDomain[1] bits 15-8
+ *
+ * where for the last entry bits 7,6 and 5 are don't care in the FAPI and bits
+ * 31-13 are don't care in the IAPI.
+ */
+void covertFreqDomRsrcMapToIAPIFormat(uint8_t *sourceBitMap, uint8_t *destBitMap)
+{
+   int8_t  idx;
+   uint8_t  numBitsToShift = 0;
+   uint64_t freqDomainResources = 0;
+
+   /* Bit operation to create a 64-bit integer that has
+    * 48 LSBs [Bit 47 to Bit 0] mapped to sourceBitMap[0] to sourceBitMap[5]
+    */
+   for(idx = FREQ_DOM_RSRC_SIZE-1; idx >=0; idx--)
+   {
+      freqDomainResources |= ((uint64_t)sourceBitMap[idx] << numBitsToShift);
+      numBitsToShift += 8;
+   }
+
+   /* Right shift 3 bits because bits[2-0] are unused in sourceBitMap[5] */
+   freqDomainResources = freqDomainResources >> 3;
+
+   /* Filling destBitMap such that LSB bit 0 of freqDomainResources maps to LSB 
+    * of first word of destBitMap */
+   numBitsToShift = 0;
+   for(idx=0; idx<FREQ_DOM_RSRC_SIZE; idx++)
+   {
+      destBitMap[idx] = freqDomainResources >> numBitsToShift;
+      numBitsToShift += 8;
+   }
+}
+
 /**********************************************************************
          End of file
 **********************************************************************/

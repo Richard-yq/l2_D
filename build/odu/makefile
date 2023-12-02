@@ -74,7 +74,7 @@ endif
 # macro for output file name and makefile name
 #
 
-PLTFRM_FLAGS= -UMSPD -DODU -DINTEL_FAPI #-DCALL_FLOW_DEBUG_LOG #-DODU_MEMORY_DEBUG_LOG #-DODU_SLOT_IND_DEBUG_LOG -DEGTP_TEST
+PLTFRM_FLAGS= -UMSPD -DODU -DINTEL_FAPI #-DCALL_FLOW_DEBUG_LOG -DODU_MEMORY_DEBUG_LOG -DODU_SLOT_IND_DEBUG_LOG
 
 ifeq ($(MODE),TDD)
    PLTFRM_FLAGS += -DNR_TDD
@@ -97,6 +97,10 @@ ifeq ($(O1_ENABLE),YES)
 	PLTFRM_FLAGS+=-DO1_ENABLE
 endif
 
+ifeq ($(VNF_ENABLE), YES)
+	PLTFRM_FLAGS+=-DVNF_ENABLE
+endif
+
 # The include options get merged with the options needed by
 # # the called makefiles and hence we export these to make them
 # # available to them.
@@ -109,7 +113,7 @@ export BUILD
 export I_OPTS
 
 # Add to the linker options the platform specific components
-L_OPTS+=-lnsl -lrt -lm -lpthread -lsctp 
+L_OPTS+=-lnsl -lrt -lm -lpthread -lsctp
 ifeq ($(PHY), INTEL_L1)
 	L_OPTS+=-L/root/intel/phy/wls_lib/lib -lwls                         \
         -lhugetlbfs -lnuma -ldl -L/root/intel/dpdk-19.11/x86_64-native-linuxapp-gcc/lib             \
@@ -139,14 +143,18 @@ ifeq ($(PHY), INTEL_L1)
         -lrte_pmd_ring -lrte_stack -lrte_eventdev -lrte_pdump -lrte_pmd_fm10k -lrte_pmd_sfc_efx     \
         -lrte_table -lrte_fib -lrte_pipeline -lrte_pmd_hinic -lrte_pmd_skeleton_event -lrte_timer   \
         -lrte_flow_classify -lrte_pmd_af_packet -lrte_pmd_hns3 -lrte_pmd_softnic -lrte_vhost        \
-        -lrte_gro -lrte_pmd_ark -lrte_pmd_i40e -lrte_pmd_sw_event
+        -lrte_gro -lrte_pmd_ark -lrte_pmd_i40e -lrte_pmd_sw_event									
 endif
 
 ifeq ($(O1_ENABLE),YES)
   L_OPTS+=-lsysrepo -lyang
   L_OPTS+=-lsysrepo-cpp -lyang-cpp
-L_OPTS+= -lnetconf2 -lcjson -lcurl
+  L_OPTS+= -lnetconf2 -lcjson -lcurl
   L_OPTS+=-lstdc++
+endif
+
+ifeq ($(VNF_ENABLE), YES)
+	L_OPTS+=-lz
 endif
 
 # Export some of the flags expected from the command line.
@@ -202,7 +210,10 @@ prepare_ric_dirs:
 	 $(Q)mkdir -p $(BIN_DIR)/ric_stub
 	 $(Q)echo -e "Directories are successfully prepared"
 
+
+# The First command is for compiling the nfapi lib
 du:
+		$(Q)$(MAKE) -j -f $(COM_BUILD_DIR)/nfapi.mak OBJ_DIR=$(OBJ_ROOT)/odu LIB_DIR=$(LIB_ROOT)/odu LOG_DIR=$(LOG_ROOT)/odu CC='$(CC1)'
 		$(Q)$(MAKE) -j -f $(COM_BUILD_DIR)/asn_common.mak OBJ_DIR=$(OBJ_ROOT)/odu LIB_DIR=$(LIB_ROOT)/odu LOG_DIR=$(LOG_ROOT)/odu CC='$(CC1)'
 		$(Q)$(MAKE) -j -f $(COM_BUILD_DIR)/asn_f1ap.mak OBJ_DIR=$(OBJ_ROOT)/odu LIB_DIR=$(LIB_ROOT)/odu LOG_DIR=$(LOG_ROOT)/odu CC='$(CC1)'
 		$(Q)$(MAKE) -j -f $(COM_BUILD_DIR)/asn_e2ap.mak OBJ_DIR=$(OBJ_ROOT)/odu LIB_DIR=$(LIB_ROOT)/odu LOG_DIR=$(LOG_ROOT)/odu CC='$(CC1)'
@@ -223,10 +234,11 @@ ifeq ($(O1_ENABLE),YES)
 endif
 
 link_du: du
-		   $(Q)$(CC1) -g -o $(OBJ_ROOT)/odu/odu -Wl,-R../lib/:. $(OBJ_ROOT)/odu/*.o\
-			$(L_OPTS) -L$(LIB_ROOT)/odu -L$(ROOT_DIR)/libs/odu 
+		$(Q)$(CC1) -g -o $(OBJ_ROOT)/odu/odu -Wl,-R../lib/:. $(OBJ_ROOT)/odu/*.o\
+		$(L_OPTS) -L$(LIB_ROOT)/odu -L$(ROOT_DIR)/libs/odu -I$(LIB_ROOT)/odu/libnfapi.a
 
 clean_odu: 
+		$(Q)$(MAKE) -j -f $(COM_BUILD_DIR)/nfapi.mak clean OBJ_DIR=$(OBJ_ROOT)/odu LIB_DIR=$(LIB_ROOT)/odu LOG_DIR=$(LOG_ROOT)/odu CC='$(CC1)'
 		$(Q)$(MAKE) -j -f $(COM_BUILD_DIR)/du_app.mak clean OBJ_DIR=$(OBJ_ROOT)/odu LIB_DIR=$(LIB_ROOT)/odu LOG_DIR=$(LOG_ROOT)/odu CC='$(CC1)'
 		$(Q)$(MAKE) -j -f $(COM_BUILD_DIR)/asn_common.mak clean OBJ_DIR=$(OBJ_ROOT)/odu LIB_DIR=$(LIB_ROOT)/odu LOG_DIR=$(LOG_ROOT)/odu CC='$(CC1)'
 		$(Q)$(MAKE) -j -f $(COM_BUILD_DIR)/asn_f1ap.mak clean OBJ_DIR=$(OBJ_ROOT)/odu LIB_DIR=$(LIB_ROOT)/odu LOG_DIR=$(LOG_ROOT)/odu CC='$(CC1)'
@@ -340,7 +352,7 @@ copy_build: link_du
 			$(Q)cp -f ../scripts/start_du_logging.sh $(ROOT_DIR)/bin/odu
 			$(Q)cp -rf ../config/ $(ROOT_DIR)/bin/odu
 			$(Q)cp -f ./lib/odu/*.a $(ROOT_DIR)/libs/
-		   $(Q)echo -e "***** BUILD COMPLETE *****"
+		   	$(Q)echo -e "***** BUILD COMPLETE *****"
 
 odu: prepare_dirs copy_build
 cu_stub: prepare_cu_dirs cu link_cu
